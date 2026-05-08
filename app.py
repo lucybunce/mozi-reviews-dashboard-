@@ -221,23 +221,21 @@ with tab_attrs:
             fig_hh.update_layout(height=320, margin=dict(t=40))
             st.plotly_chart(fig_hh, use_container_width=True)
 
-            age_rating = (
-                df[df['reviewer_age'].notna()]
-                .groupby('reviewer_age')['rating']
-                .mean()
-                .reindex(AGE_ORDER)
-                .dropna()
-                .reset_index()
+            age_scent = (
+                df[df['reviewer_age'].notna() & df['scent'].notna()]
+                .groupby(['scent', 'reviewer_age'])
+                .size()
+                .reset_index(name='count')
             )
-            age_rating.columns = ['age', 'avg_rating']
-            fig_ar = px.bar(
-                age_rating, x='age', y='avg_rating',
-                title='Avg Rating by Age Group',
-                color_discrete_sequence=['#E8734A'],
-                range_y=[1, 5],
+            age_scent['reviewer_age'] = pd.Categorical(age_scent['reviewer_age'], categories=AGE_ORDER, ordered=True)
+            age_scent = age_scent.sort_values('reviewer_age')
+            fig_as = px.bar(
+                age_scent, x='scent', y='count', color='reviewer_age',
+                title='Age Range by Scent',
+                category_orders={'reviewer_age': AGE_ORDER},
             )
-            fig_ar.update_layout(height=320, margin=dict(t=40))
-            st.plotly_chart(fig_ar, use_container_width=True)
+            fig_as.update_layout(height=320, margin=dict(t=40), xaxis_tickangle=-35)
+            st.plotly_chart(fig_as, use_container_width=True)
 
 # ── Reviews ────────────────────────────────────────────────────────────────────
 with tab_reviews:
