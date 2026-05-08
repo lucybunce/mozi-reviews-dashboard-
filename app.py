@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import json
 from anthropic import Anthropic
 from datetime import datetime, timedelta
 
@@ -11,6 +12,12 @@ SCENT_NAMES = {
     'AW': 'Alpine Woods', 'CC': 'Central Coast', 'CZ': 'Signature Cozy',
     'DP': 'Desert Poppy', 'FC': 'Free & Clear', 'GH': 'Golden Hour',
     'HR': 'Hollywood Rouge', 'MM': 'Malibu Mornings', 'SD': 'Sugar Dew', 'VM': 'Vanilla Moon',
+}
+
+SCENT_COLORS = {
+    'AW': '#4F7942', 'CC': '#4F86C6', 'CZ': '#C8A96E', 'DP': '#E8734A',
+    'FC': '#88BBAA', 'GH': '#F2C94C', 'HR': '#9B2335', 'MM': '#6BAED6',
+    'SD': '#F4A460', 'VM': '#9B59B6',
 }
 
 
@@ -78,82 +85,161 @@ c4.metric("% Recommended", pct_rec_str)
 st.divider()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_trends, tab_scent, tab_reviews, tab_chat = st.tabs(["Trends", "By Scent", "Reviews", "Ask Claude"])
+tab_themes, tab_attrs, tab_reviews, tab_chat = st.tabs([
+    "Themes by Scent", "Profile Attributes", "Reviews", "Ask Claude"
+])
 
-with tab_trends:
+# ── Themes by Scent ────────────────────────────────────────────────────────────
+with tab_themes:
+    st.caption("Claude-generated marketing themes per scent · Based on all reviews · Updates weekly with new data")
+
+    @st.cache_data(show_spinner="Analyzing themes with Claude — this takes about 30 seconds...")
+    def get_themes(review_count, max_date):
+        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        scent_blocks = []
+        for sku in sorted(df_all['sku'].dropna().unique()):
+            name = SCENT_NAMES.get(sku, sku)
+            reviews = (
+                df_all[(df_all['sku'] == sku) & df_all['body'].notna()]
+                .sort_values('date_created', ascending=False)
+                .head(40)
+            )
+            if reviews.empty:
+                continue
+            text = '\n'.join(
+                f"[{r['rating']}★] {r['title']}: {str(r['body'])[:250]}"
+                for _, r in reviews.iterrows()
+            )
+            scent_blocks.append(f"=== {sku} — {name} ===\n{text}")
+
+        prompt = f"""You are a senior marketing strategist for Mozi Wash, a premium laundry detergent in beautiful metal tins.
+Core customer: women who love premium home goods and care deeply about scent.
+
+Analyze these customer reviews grouped by scent. For each scent return exactly 4 recurring themes that are useful for marketing.
+
+Return ONLY a raw JSON object — no markdown, no code fences. Schema:
+{{
+  "AW": {{
+    "themes": [
+      {{"theme": "short theme name", "description": "one sentence", "example": "exact short quote from a review"}}
+    ]
+  }},
+  ... (same structure for every scent present)
+}}
+
+Reviews:
+{''.join(scent_blocks)}"""
+
+        raw = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=4096,
+            messages=[{'role': 'user', 'content': prompt}],
+        ).content[0].text.strip()
+
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[1].rsplit('```', 1)[0]
+        return json.loads(raw)
+
+    themes_data = get_themes(len(df_all), str(df_all['date_created'].max().date()))
+
+    if themes_data:
+        skus_present = [s for s in sorted(SCENT_NAMES.keys()) if s in themes_data]
+        cols = st.columns(2)
+        for i, sku in enumerate(skus_present):
+            name = SCENT_NAMES.get(sku, sku)
+            color = SCENT_COLORS.get(sku, '#888')
+            scent_themes = themes_data.get(sku, {}).get('themes', [])
+            with cols[i % 2]:
+                st.markdown(f"#### {name}")
+                for t in scent_themes:
+                    with st.expander(f"**{t['theme']}** — {t['description']}"):
+                        st.markdown(f"*\"{t['example']}\"*")
+                st.divider()
+
+# ── Profile Attributes ─────────────────────────────────────────────────────────
+with tab_attrs:
+    st.caption("Reviewer demographics from the current filtered view")
+
     if df.empty:
         st.info("No data for current filters.")
     else:
-        weekly = (
-            df.set_index('date_created')
-            .resample('W')['review_id']
-            .count()
-            .reset_index(name='reviews')
-        )
-        fig = px.line(weekly, x='date_created', y='reviews', title='Reviews per week', markers=True)
-        fig.update_layout(height=280, margin=dict(t=40))
-        st.plotly_chart(fig, use_container_width=True)
+        col1, col2 = st.columns(2)
 
-        avg_wk = (
-            df.set_index('date_created')
-            .resample('W')['rating']
-            .mean()
-            .reset_index(name='avg_rating')
-        )
-        overall_avg = df['rating'].mean()
-        fig2 = px.line(avg_wk, x='date_created', y='avg_rating', title='Avg rating per week')
-        fig2.update_layout(height=280, margin=dict(t=40), yaxis_range=[1, 5])
-        fig2.add_hline(
-            y=overall_avg, line_dash='dot', line_color='gray',
-            annotation_text=f"Overall avg: {overall_avg:.2f}",
-        )
-        st.plotly_chart(fig2, use_container_width=True)
+        AGE_ORDER = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+']
+        WASH_ORDER = ['1', '2', '3-4', '5+']
+        HOUSEHOLD_ORDER = ['1', '2 - 4', '5+']
 
-with tab_scent:
-    if df.empty:
-        st.info("No data for current filters.")
-    else:
-        col_l, col_r = st.columns(2)
-        with col_l:
-            scent_stats = (
-                df.groupby('scent')
-                .agg(avg_rating=('rating', 'mean'), reviews=('review_id', 'count'))
+        with col1:
+            age_counts = (
+                df['reviewer_age'].dropna()
+                .value_counts()
+                .reindex(AGE_ORDER)
+                .dropna()
                 .reset_index()
-                .sort_values('avg_rating')
             )
-            fig3 = px.bar(
-                scent_stats, y='scent', x='avg_rating', orientation='h',
-                title='Avg Rating by Scent', text='avg_rating',
-                color='avg_rating', color_continuous_scale='RdYlGn', range_color=[3.5, 5],
+            age_counts.columns = ['age', 'count']
+            fig_age = px.bar(
+                age_counts, x='age', y='count',
+                title='Reviewers by Age Group',
+                color_discrete_sequence=['#C8A96E'],
             )
-            fig3.update_traces(texttemplate='%{text:.2f}', textposition='outside')
-            fig3.update_layout(height=380, showlegend=False, margin=dict(t=40))
-            st.plotly_chart(fig3, use_container_width=True)
-        with col_r:
-            vol = df.groupby('scent').size().reset_index(name='count')
-            fig4 = px.pie(vol, values='count', names='scent', title='Review Volume by Scent')
-            fig4.update_layout(height=380, margin=dict(t=40))
-            st.plotly_chart(fig4, use_container_width=True)
+            fig_age.update_layout(height=320, margin=dict(t=40))
+            st.plotly_chart(fig_age, use_container_width=True)
 
-        attrs = {
-            'scent_appeal': 'Scent Appeal',
-            'cleaning_power': 'Cleaning Power',
-            'cap_pouring': 'Cap / Pouring',
-        }
-        attr_df = (
-            df.groupby('scent')[list(attrs.keys())]
-            .mean()
-            .reset_index()
-            .melt(id_vars='scent', var_name='attr', value_name='score')
-        )
-        attr_df['attr'] = attr_df['attr'].map(attrs)
-        fig5 = px.bar(
-            attr_df, x='scent', y='score', color='attr', barmode='group',
-            title='Attribute Scores by Scent (1–5)', range_y=[0, 5],
-        )
-        fig5.update_layout(height=380, margin=dict(t=40))
-        st.plotly_chart(fig5, use_container_width=True)
+            wash_counts = (
+                df['reviewer_washes'].dropna()
+                .astype(str).str.strip()
+                .value_counts()
+                .reindex(WASH_ORDER)
+                .dropna()
+                .reset_index()
+            )
+            wash_counts.columns = ['washes', 'count']
+            fig_wash = px.bar(
+                wash_counts, x='washes', y='count',
+                title='Washes per Week',
+                color_discrete_sequence=['#4F86C6'],
+            )
+            fig_wash.update_layout(height=320, margin=dict(t=40))
+            st.plotly_chart(fig_wash, use_container_width=True)
 
+        with col2:
+            hh_counts = (
+                df['reviewer_household'].dropna()
+                .astype(str).str.strip()
+                .value_counts()
+                .reindex(HOUSEHOLD_ORDER)
+                .dropna()
+                .reset_index()
+            )
+            hh_counts.columns = ['household', 'count']
+            fig_hh = px.bar(
+                hh_counts, x='household', y='count',
+                title='Household Size',
+                color_discrete_sequence=['#5BAD6F'],
+            )
+            fig_hh.update_layout(height=320, margin=dict(t=40))
+            st.plotly_chart(fig_hh, use_container_width=True)
+
+            age_rating = (
+                df[df['reviewer_age'].notna()]
+                .groupby('reviewer_age')['rating']
+                .mean()
+                .reindex(AGE_ORDER)
+                .dropna()
+                .reset_index()
+            )
+            age_rating.columns = ['age', 'avg_rating']
+            fig_ar = px.bar(
+                age_rating, x='age', y='avg_rating',
+                title='Avg Rating by Age Group',
+                color_discrete_sequence=['#E8734A'],
+                range_y=[1, 5],
+            )
+            fig_ar.update_layout(height=320, margin=dict(t=40))
+            st.plotly_chart(fig_ar, use_container_width=True)
+
+# ── Reviews ────────────────────────────────────────────────────────────────────
 with tab_reviews:
     search = st.text_input("Search review text")
     view = df[['date_created', 'scent', 'rating', 'title', 'body', 'is_recommended']].copy()
@@ -166,6 +252,7 @@ with tab_reviews:
         view = view[mask]
     st.dataframe(view.sort_values('date_created', ascending=False), use_container_width=True, height=520)
 
+# ── Ask Claude ─────────────────────────────────────────────────────────────────
 with tab_chat:
     st.caption("Ask anything about the reviews shown in the current filtered view.")
 
