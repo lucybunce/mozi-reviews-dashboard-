@@ -47,7 +47,7 @@ def load_data():
     df = pd.read_csv('reviews.csv')
     df['date_created'] = pd.to_datetime(df['date_created'], utc=True).dt.tz_convert(None)
     df['scent'] = df['sku'].map(SCENT_NAMES).fillna(df['sku'])
-    for col in ('themes', 'standout_phrases', 'emotional_triggers', 'comparison_phrases'):
+    for col in ('themes', 'standout_phrases', 'emotional_triggers', 'comparison_phrases', 'competitor_mentions', 'use_cases'):
         if col in df.columns:
             df[f'{col}_list'] = df[col].apply(safe_json_list)
         else:
@@ -116,8 +116,8 @@ c4.metric("% Recommended", pct_rec_str)
 st.divider()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_themes, tab_hooks, tab_attrs, tab_reviews, tab_chat = st.tabs([
-    "Themes by Scent", "Marketing Hooks", "Profile Attributes", "Reviews", "Ask Claude"
+tab_themes, tab_hooks, tab_competitors, tab_usecases, tab_attrs, tab_reviews, tab_chat = st.tabs([
+    "Themes by Scent", "Marketing Hooks", "Competitor Mentions", "Use Cases", "Profile Attributes", "Reviews", "Ask Claude"
 ])
 
 # ── Claude theme analysis (cached at module level) ─────────────────────────────
@@ -401,6 +401,133 @@ with tab_hooks:
         st.plotly_chart(fig_trig, use_container_width=True)
     else:
         st.info("No emotional triggers found in current filter.")
+
+
+# ── Competitor Mentions tab ───────────────────────────────────────────────────
+with tab_competitors:
+    st.caption("Brands mentioned in reviews — all data is 4-5 star reviews so mentions are almost always in a switching or comparison context")
+
+    comp_rows = df[df['competitor_mentions_list'].apply(len) > 0]
+
+    if comp_rows.empty:
+        st.info("No competitor mentions in current filter.")
+    else:
+        # Overall frequency chart
+        all_comp_mentions = [c for cl in comp_rows['competitor_mentions_list'] for c in cl if c]
+        comp_freq = pd.Series(all_comp_mentions).value_counts().reset_index()
+        comp_freq.columns = ['competitor', 'mentions']
+
+        fig_comp = px.bar(
+            comp_freq, x='mentions', y='competitor', orientation='h',
+            title='Competitor Mentions across Reviews',
+            color_discrete_sequence=['#E8734A'],
+        )
+        fig_comp.update_layout(
+            height=max(300, len(comp_freq) * 28),
+            margin=dict(t=40, l=160),
+            yaxis={'categoryorder': 'total ascending'},
+        )
+        st.plotly_chart(fig_comp, use_container_width=True)
+
+        # Competitor detail
+        st.divider()
+        st.subheader("Competitor Detail")
+        competitor_options = comp_freq['competitor'].tolist()
+        selected_comp = st.selectbox("Select a competitor", competitor_options, key='comp_select')
+
+        comp_detail = comp_rows[comp_rows['competitor_mentions_list'].apply(lambda x: selected_comp in x)]
+
+        cc1, cc2 = st.columns(2)
+        cc1.metric("Reviews mentioning", len(comp_detail))
+        cc2.metric("% of filtered reviews", f"{len(comp_detail) / max(len(df), 1) * 100:.1f}%")
+
+        # Scent breakdown
+        scent_comp = (
+            comp_detail.groupby('scent').size()
+            .reset_index(name='count')
+            .sort_values('count', ascending=False)
+        )
+        fig_sc = px.bar(
+            scent_comp, x='scent', y='count',
+            title=f'{selected_comp} mentions by scent',
+            color='scent', color_discrete_map=SCENT_COLOR_MAP,
+        )
+        fig_sc.update_layout(height=280, margin=dict(t=40), showlegend=False)
+        st.plotly_chart(fig_sc, use_container_width=True)
+
+        # Sample reviews
+        st.markdown("**Reviews mentioning this competitor:**")
+        for _, row in comp_detail.head(10).iterrows():
+            with st.expander(f"{row['scent']} · {int(row['rating'])}★ · {str(row['date_created'])[:10]} — {row['title'] or ''}"):
+                st.write(row['body'])
+
+
+# ── Use Cases tab ──────────────────────────────────────────────────────────────
+with tab_usecases:
+    st.caption("What customers are washing — useful for audience targeting and ad copy")
+
+    uc_rows = df[df['use_cases_list'].apply(len) > 0]
+
+    if uc_rows.empty:
+        st.info("No use cases tagged in current filter.")
+    else:
+        # Overall frequency chart
+        all_use_cases = [u for ul in uc_rows['use_cases_list'] for u in ul if u]
+        uc_freq = pd.Series(all_use_cases).value_counts().head(20).reset_index()
+        uc_freq.columns = ['use_case', 'count']
+
+        fig_uc = px.bar(
+            uc_freq, x='count', y='use_case', orientation='h',
+            title='Most Common Use Cases',
+            color_discrete_sequence=['#4F7942'],
+        )
+        fig_uc.update_layout(
+            height=max(300, len(uc_freq) * 28),
+            margin=dict(t=40, l=180),
+            yaxis={'categoryorder': 'total ascending'},
+        )
+        st.plotly_chart(fig_uc, use_container_width=True)
+
+        # Gifting signal summary
+        if 'gifting_signal' in df.columns:
+            gift_count = int(df['gifting_signal'].fillna(0).sum())
+            gift_pct = gift_count / max(len(df), 1) * 100
+            st.info(f"Gift signal detected in **{gift_count} reviews** ({gift_pct:.1f}% of filtered) — customers mention giving or receiving Mozi as a gift")
+
+        # Use case detail
+        st.divider()
+        st.subheader("Use Case Detail")
+        uc_options = uc_freq['use_case'].tolist()
+        selected_uc = st.selectbox("Select a use case", uc_options, key='uc_select')
+
+        uc_detail = uc_rows[uc_rows['use_cases_list'].apply(lambda x: selected_uc in x)]
+
+        uc1, uc2 = st.columns(2)
+        uc1.metric("Reviews mentioning", len(uc_detail))
+        uc2.metric("% of filtered reviews", f"{len(uc_detail) / max(len(df), 1) * 100:.1f}%")
+
+        # Scent breakdown for this use case
+        scent_uc = (
+            uc_detail.groupby('scent').size()
+            .reset_index(name='count')
+            .sort_values('count', ascending=False)
+        )
+        fig_su = px.bar(
+            scent_uc, x='scent', y='count',
+            title=f'"{selected_uc}" — which scents customers buy for this',
+            color='scent', color_discrete_map=SCENT_COLOR_MAP,
+        )
+        fig_su.update_layout(height=280, margin=dict(t=40), showlegend=False)
+        st.plotly_chart(fig_su, use_container_width=True)
+
+        # Standout phrases for this use case
+        uc_phrases = [p for tl in uc_detail['standout_phrases_list'] for p in tl if p]
+        if uc_phrases:
+            st.markdown("**Customer quotes:**")
+            uqc1, uqc2 = st.columns(2)
+            for i, phrase in enumerate(uc_phrases[:8]):
+                with (uqc1 if i % 2 == 0 else uqc2):
+                    st.markdown(f"> *\"{phrase}\"*")
 
 
 # ── Profile Attributes ─────────────────────────────────────────────────────────
