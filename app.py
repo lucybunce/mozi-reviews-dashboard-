@@ -69,11 +69,32 @@ except FileNotFoundError:
 # ── Sidebar filters ────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("Filters")
+
+    if 'filter_preset' not in st.session_state:
+        st.session_state.filter_preset = None
+    pc1, pc2, pc3 = st.columns(3)
+    if pc1.button("90 Days", use_container_width=True, key='pre_90d'):
+        st.session_state.filter_preset = '90d'
+        st.rerun()
+    if pc2.button("5★ Only", use_container_width=True, key='pre_5star'):
+        st.session_state.filter_preset = '5star'
+        st.rerun()
+    if pc3.button("Reset", use_container_width=True, key='pre_reset'):
+        st.session_state.filter_preset = None
+        st.rerun()
+
+    _today    = df_all['date_created'].max().date()
+    _min_date = df_all['date_created'].min().date()
+    _preset   = st.session_state.filter_preset
+    _def_dates  = [_today - timedelta(days=90), _today] if _preset == '90d' else [_min_date, _today]
+    _def_rating = 5 if _preset == '5star' else 1
+
     date_range = st.date_input(
         "Date range",
-        value=[df_all['date_created'].min().date(), df_all['date_created'].max().date()],
-        min_value=df_all['date_created'].min().date(),
-        max_value=df_all['date_created'].max().date(),
+        value=_def_dates,
+        min_value=_min_date,
+        max_value=_today,
+        key=f'date_range_{_preset}',
     )
     all_skus = sorted(df_all['sku'].dropna().unique())
     sel_scents = st.multiselect(
@@ -81,7 +102,7 @@ with st.sidebar:
         format_func=lambda x: SCENT_NAMES.get(x, x),
         default=all_skus,
     )
-    min_rating = st.slider("Min rating", 1, 5, 1)
+    min_rating = st.slider("Min rating", 1, 5, _def_rating, key=f'min_rating_{_preset}')
 
 # ── Apply filters ──────────────────────────────────────────────────────────────
 df = df_all.copy()
@@ -401,6 +422,39 @@ with tab_hooks:
         st.plotly_chart(fig_trig, use_container_width=True)
     else:
         st.info("No emotional triggers found in current filter.")
+
+    # ── Gift Signal Tracker ───────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Gift Signal Tracker")
+    st.caption("Reviews where customers mention giving or receiving Mozi as a gift")
+
+    gift_df = df[df['gifting_signal'].fillna(0).astype(int) == 1] if 'gifting_signal' in df.columns else pd.DataFrame()
+    if not gift_df.empty:
+        gsc1, gsc2 = st.columns(2)
+        gsc1.metric("Reviews with gift signal", len(gift_df))
+        gsc2.metric("% of filtered reviews", f"{len(gift_df) / max(len(df), 1) * 100:.1f}%")
+
+        gift_scents = (
+            gift_df.groupby('scent').size()
+            .reset_index(name='count')
+            .sort_values('count', ascending=False)
+        )
+        fig_gift = px.bar(
+            gift_scents, x='scent', y='count', title='Gift Signal by Scent',
+            color='scent', color_discrete_map=SCENT_COLOR_MAP,
+        )
+        fig_gift.update_layout(height=260, margin=dict(t=40), showlegend=False)
+        st.plotly_chart(fig_gift, use_container_width=True)
+
+        gift_phrases = [p for tl in gift_df['standout_phrases_list'] for p in tl if p]
+        if gift_phrases:
+            st.markdown("**Best quotes from gift reviews:**")
+            gpc1, gpc2 = st.columns(2)
+            for i, phrase in enumerate(gift_phrases[:8]):
+                with (gpc1 if i % 2 == 0 else gpc2):
+                    st.code(phrase, language=None)
+    else:
+        st.info("No gift signals in current filter.")
 
 
 # ── Competitor Mentions tab ───────────────────────────────────────────────────
@@ -907,6 +961,44 @@ with tab_attrs:
     if df.empty:
         st.info("No data for current filters.")
     else:
+        # ── Fragrance Comparison ──────────────────────────────────────────────
+        st.subheader("Fragrance Comparison")
+        fcc1, fcc2 = st.columns(2)
+        scent_name_options = [SCENT_NAMES[s] for s in sorted(SCENT_NAMES.keys())]
+        with fcc1:
+            cmp_a = st.selectbox("Scent A", scent_name_options, index=0, key='cmp_a')
+        with fcc2:
+            cmp_b = st.selectbox("Scent B", scent_name_options, index=1, key='cmp_b')
+
+        def scent_stats(name):
+            sku = next((k for k, v in SCENT_NAMES.items() if v == name), None)
+            s = df[df['sku'] == sku] if sku else pd.DataFrame()
+            themes = pd.Series([t for tl in s['themes_list'] for t in tl if t]).value_counts().head(3).index.tolist() if len(s) else []
+            phrase = next((p for tl in s.sort_values('rating', ascending=False)['standout_phrases_list'] for p in tl if p), None) if len(s) else None
+            return {'n': len(s), 'avg': s['rating'].mean() if len(s) else 0, 'themes': themes, 'phrase': phrase}
+
+        sa, sb = scent_stats(cmp_a), scent_stats(cmp_b)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(f"{cmp_a} reviews", sa['n'])
+        m2.metric(f"{cmp_a} avg rating", f"{sa['avg']:.2f}★" if sa['n'] else "—")
+        m3.metric(f"{cmp_b} reviews", sb['n'])
+        m4.metric(f"{cmp_b} avg rating", f"{sb['avg']:.2f}★" if sb['n'] else "—")
+
+        tc1, tc2 = st.columns(2)
+        with tc1:
+            st.markdown(f"**{cmp_a} — Top Themes**")
+            for t in sa['themes']:
+                st.markdown(f"- {t}")
+            if sa['phrase']:
+                st.markdown(f"> *\"{sa['phrase']}\"*")
+        with tc2:
+            st.markdown(f"**{cmp_b} — Top Themes**")
+            for t in sb['themes']:
+                st.markdown(f"- {t}")
+            if sb['phrase']:
+                st.markdown(f"> *\"{sb['phrase']}\"*")
+
+        st.divider()
         col1, col2 = st.columns(2)
 
         AGE_ORDER = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+']
@@ -997,6 +1089,47 @@ with tab_attrs:
             fig_as.update_layout(height=320, margin=dict(t=40), xaxis_tickangle=-35)
             st.plotly_chart(fig_as, use_container_width=True)
 
+        # ── Repeat Purchase Reasons ───────────────────────────────────────────
+        st.divider()
+        st.subheader("Repeat Purchase Reasons")
+        st.caption("What customers who have reviewed multiple times say about coming back")
+
+        if 'reviewer_name' in df.columns:
+            repeat_all = (
+                df[df['reviewer_name'].notna() & (df['reviewer_name'] != '')]
+                .groupby('reviewer_name')
+                .filter(lambda x: len(x) > 1)
+            )
+            if not repeat_all.empty:
+                rp1, rp2, rp3 = st.columns(3)
+                rp1.metric("Repeat reviewers", repeat_all['reviewer_name'].nunique())
+                rp2.metric("Reviews from repeats", len(repeat_all))
+                rp3.metric("Avg rating (repeats)", f"{repeat_all['rating'].mean():.2f}★")
+
+                repeat_themes = pd.Series(
+                    [t for tl in repeat_all['themes_list'] for t in tl if t]
+                ).value_counts().head(6).reset_index()
+                repeat_themes.columns = ['theme', 'count']
+                if not repeat_themes.empty:
+                    fig_rpt = px.bar(
+                        repeat_themes, x='count', y='theme', orientation='h',
+                        title='Top Themes — Repeat Customers',
+                        color_discrete_sequence=['#C8A96E'],
+                    )
+                    fig_rpt.update_layout(height=280, margin=dict(t=40, l=160),
+                                          yaxis={'categoryorder': 'total ascending'})
+                    st.plotly_chart(fig_rpt, use_container_width=True)
+
+                repeat_phrases = [p for tl in repeat_all['standout_phrases_list'] for p in tl if p]
+                if repeat_phrases:
+                    st.markdown("**What keeps them coming back:**")
+                    rpqc1, rpqc2 = st.columns(2)
+                    for i, phrase in enumerate(repeat_phrases[:8]):
+                        with (rpqc1 if i % 2 == 0 else rpqc2):
+                            st.markdown(f"> *\"{phrase}\"*")
+            else:
+                st.info("No repeat reviewers in current filter.")
+
 
 # ── Reviews ────────────────────────────────────────────────────────────────────
 with tab_reviews:
@@ -1026,6 +1159,14 @@ with tab_reviews:
     display = view[['date_created', 'scent', 'rating', 'title', 'body', 'is_recommended']].copy()
     display['date_created'] = display['date_created'].dt.strftime('%Y-%m-%d')
     st.dataframe(display, use_container_width=True, height=520)
+
+    st.download_button(
+        "Export as CSV",
+        display.to_csv(index=False).encode('utf-8'),
+        f"mozi_reviews_{datetime.now().strftime('%Y%m%d')}.csv",
+        "text/csv",
+        key='export_csv',
+    )
 
 
 # ── Ask Claude ─────────────────────────────────────────────────────────────────
