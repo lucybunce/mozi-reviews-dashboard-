@@ -89,30 +89,27 @@ tab_themes, tab_attrs, tab_reviews, tab_chat = st.tabs([
     "Themes by Scent", "Profile Attributes", "Reviews", "Ask Claude"
 ])
 
-# ── Themes by Scent ────────────────────────────────────────────────────────────
-with tab_themes:
-    st.caption("Claude-generated marketing themes per scent · Based on all reviews · Updates weekly with new data")
+# ── Themes by Scent (cached at module level so failures don't get cached) ──────
+@st.cache_data(show_spinner="Analyzing themes with Claude — this takes about 30 seconds...")
+def get_themes(review_count, max_date):
+    client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    scent_blocks = []
+    for sku in sorted(df_all['sku'].dropna().unique()):
+        name = SCENT_NAMES.get(sku, sku)
+        reviews = (
+            df_all[(df_all['sku'] == sku) & df_all['body'].notna()]
+            .sort_values('date_created', ascending=False)
+            .head(40)
+        )
+        if reviews.empty:
+            continue
+        text = '\n'.join(
+            f"[{r['rating']}★] {r['title']}: {str(r['body'])[:250]}"
+            for _, r in reviews.iterrows()
+        )
+        scent_blocks.append(f"=== {sku} — {name} ===\n{text}")
 
-    @st.cache_data(show_spinner="Analyzing themes with Claude — this takes about 30 seconds...")
-    def get_themes(review_count, max_date):
-        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-        scent_blocks = []
-        for sku in sorted(df_all['sku'].dropna().unique()):
-            name = SCENT_NAMES.get(sku, sku)
-            reviews = (
-                df_all[(df_all['sku'] == sku) & df_all['body'].notna()]
-                .sort_values('date_created', ascending=False)
-                .head(40)
-            )
-            if reviews.empty:
-                continue
-            text = '\n'.join(
-                f"[{r['rating']}★] {r['title']}: {str(r['body'])[:250]}"
-                for _, r in reviews.iterrows()
-            )
-            scent_blocks.append(f"=== {sku} — {name} ===\n{text}")
-
-        prompt = f"""You are a senior marketing strategist for Mozi Wash, a premium laundry detergent in beautiful metal tins.
+    prompt = f"""You are a senior marketing strategist for Mozi Wash, a premium laundry detergent in beautiful metal tins.
 Core customer: women who love premium home goods and care deeply about scent.
 
 Analyze these customer reviews grouped by scent. For each scent return exactly 4 recurring themes that are useful for marketing.
@@ -130,17 +127,24 @@ Return ONLY a raw JSON object — no markdown, no code fences. Schema:
 Reviews:
 {''.join(scent_blocks)}"""
 
-        raw = client.messages.create(
-            model='claude-sonnet-4-6',
-            max_tokens=4096,
-            messages=[{'role': 'user', 'content': prompt}],
-        ).content[0].text.strip()
+    raw = client.messages.create(
+        model='claude-sonnet-4-6',
+        max_tokens=4096,
+        messages=[{'role': 'user', 'content': prompt}],
+    ).content[0].text.strip()
+    if raw.startswith('```'):
+        raw = raw.split('\n', 1)[1].rsplit('```', 1)[0]
+    return json.loads(raw)
 
-        if raw.startswith('```'):
-            raw = raw.split('\n', 1)[1].rsplit('```', 1)[0]
-        return json.loads(raw)
 
-    themes_data = get_themes(len(df_all), str(df_all['date_created'].max().date()))
+with tab_themes:
+    st.caption("Claude-generated marketing themes per scent · Based on all reviews · Updates weekly with new data")
+
+    try:
+        themes_data = get_themes(len(df_all), str(df_all['date_created'].max().date()))
+    except Exception:
+        st.warning("Claude is temporarily busy — refresh the page in a minute to load themes.")
+        themes_data = None
 
     if themes_data:
         skus_present = [s for s in sorted(SCENT_NAMES.keys()) if s in themes_data]
@@ -274,25 +278,41 @@ with tab_chat:
             .to_string()
         ) if n else "No data"
 
-        sample = (
-            df[df['body'].notna()]
-            .sort_values('date_created', ascending=False)
-            .head(30)
-        )
+        # Search all reviews (full dataset, ignoring sidebar filters)
+        stop_words = {'the','a','an','is','are','was','were','what','which','who','how',
+                      'can','you','me','i','we','our','about','from','with','for','of',
+                      'and','or','in','on','to','do','it','this','that','be','at','by'}
+        keywords = [w.lower() for w in prompt.replace('?','').replace(',','').split()
+                    if len(w) > 2 and w.lower() not in stop_words]
+
+        with_body = df_all[df_all['body'].notna()].copy()
+        if keywords:
+            pattern = '|'.join(keywords)
+            mask = (
+                with_body['body'].str.contains(pattern, case=False, na=False) |
+                with_body['title'].fillna('').str.contains(pattern, case=False, na=False)
+            )
+            relevant = with_body[mask].head(80)
+            if len(relevant) < 15:
+                recent = with_body[~with_body.index.isin(relevant.index)].sort_values('date_created', ascending=False).head(20)
+                relevant = pd.concat([relevant, recent])
+        else:
+            relevant = with_body.sort_values('date_created', ascending=False).head(60)
+
         sample_text = '\n'.join(
-            f"[{r['scent']} | {r['rating']}★] {r['title']}: {str(r['body'])[:200]}"
-            for _, r in sample.iterrows()
+            f"[{r['scent']} | {r['rating']}★] {r['title']}: {str(r['body'])[:300]}"
+            for _, r in relevant.iterrows()
         )
 
         avg_str = f"{df['rating'].mean():.2f}" if n else 'N/A'
         system = f"""You are a marketing analyst for Mozi Wash, a premium laundry detergent brand sold in beautiful metal tins.
 Competitors: Frey, Dirty Labs, Tyler Candle. Core customer: women who love premium home goods and care deeply about scent.
 
-Current filtered dataset: {n:,} reviews · Avg rating: {avg_str}
+Total database: {len(df_all):,} reviews (all time) · Filtered view: {n:,} reviews · Avg rating: {avg_str}
 Scent breakdown (mean rating, count):
 {scent_summary}
 
-Recent review sample (up to 30):
+Relevant reviews pulled from all-time database ({len(relevant)} matched):
 {sample_text}
 
 Answer concisely. Focus on actionable marketing insights when relevant."""
