@@ -171,7 +171,8 @@ with tab_attrs:
 
         AGE_ORDER = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+']
         WASH_ORDER = ['1', '2', '3-4', '5+']
-        HOUSEHOLD_ORDER = ['1', '2 - 4', '5+']
+        HOUSEHOLD_ORDER = ['1', '2 - 4', '4 - 6', '7 +']
+        HOUSEHOLD_LABELS = {'1': '1', '2 - 4': '2-4', '4 - 6': '4-6', '7 +': '7+'}
 
         with col1:
             if 'reviewer_name' in df.columns:
@@ -222,10 +223,12 @@ with tab_attrs:
                 .reset_index()
             )
             hh_counts.columns = ['household', 'count']
+            hh_counts['household'] = hh_counts['household'].map(HOUSEHOLD_LABELS)
             fig_hh = px.bar(
                 hh_counts, x='household', y='count',
                 title='Household Size',
                 color_discrete_sequence=['#5BAD6F'],
+                category_orders={'household': ['1', '2-4', '4-6', '7+']},
             )
             fig_hh.update_layout(height=320, margin=dict(t=40))
             st.plotly_chart(fig_hh, use_container_width=True)
