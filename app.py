@@ -170,9 +170,15 @@ with tab_attrs:
         col1, col2 = st.columns(2)
 
         AGE_ORDER = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+']
-        WASH_ORDER = ['1', '2', '3-4', '5+']
+        WASH_ORDER = ['1', '2-4', '4-6', '7+']
         HOUSEHOLD_ORDER = ['1', '2 - 4', '4 - 6', '7 +']
         HOUSEHOLD_LABELS = {'1': '1', '2 - 4': '2-4', '4 - 6': '4-6', '7 +': '7+'}
+
+        def clean_washes(val):
+            if not val or str(val).strip() in ('', 'nan'):
+                return None
+            val = str(val).strip().strip("[]'\"").split(',')[0].strip().strip("'\"")
+            return {'1': '1', '2': '2-4', '3-4': '2-4', '5-6': '4-6', '7+': '7+'}.get(val)
 
         with col1:
             if 'reviewer_name' in df.columns:
@@ -197,8 +203,9 @@ with tab_attrs:
                 st.info("Reviewer name data not yet available — run okendo_dashboard.py to update.")
 
             wash_counts = (
-                df['reviewer_washes'].dropna()
-                .astype(str).str.strip()
+                df['reviewer_washes']
+                .apply(clean_washes)
+                .dropna()
                 .value_counts()
                 .reindex(WASH_ORDER)
                 .dropna()
@@ -209,6 +216,7 @@ with tab_attrs:
                 wash_counts, x='washes', y='count',
                 title='Washes per Week',
                 color_discrete_sequence=['#4F86C6'],
+                category_orders={'washes': WASH_ORDER},
             )
             fig_wash.update_layout(height=320, margin=dict(t=40))
             st.plotly_chart(fig_wash, use_container_width=True)
