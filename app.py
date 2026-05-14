@@ -331,7 +331,9 @@ Total database: {len(df_all):,} reviews (all time) · Filtered view: {n:,} revie
 Scent breakdown (mean rating, count):
 {scent_summary}
 
-Relevant reviews pulled from all-time database ({len(relevant)} matched):
+IMPORTANT: The {len(relevant)} reviews below are the COMPLETE set of matched reviews from the full database for this query — not a sample. You have everything. When asked for more examples, pull directly from the list below. Do not say you need to query the database or that you only have a sample.
+
+Reviews ({len(relevant)} total matched):
 {sample_text}
 
 Answer concisely. Focus on actionable marketing insights when relevant."""
