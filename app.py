@@ -311,6 +311,7 @@ with tab_chat:
             relevant = (
                 with_body[mask]
                 .sort_values('rating', ascending=False)
+                .head(150)
             )
             if len(relevant) < 15:
                 recent = with_body[~with_body.index.isin(relevant.index)].sort_values('date_created', ascending=False).head(20)
@@ -342,16 +343,22 @@ Answer concisely. Focus on actionable marketing insights when relevant."""
 
         with st.chat_message('assistant'):
             with st.spinner():
-                resp = client.messages.create(
-                    model='claude-sonnet-4-6',
-                    max_tokens=1024,
-                    system=system,
-                    messages=[
-                        {'role': m['role'], 'content': m['content']}
-                        for m in st.session_state.messages
-                    ],
-                )
-                answer = resp.content[0].text
+                try:
+                    resp = client.messages.create(
+                        model='claude-sonnet-4-6',
+                        max_tokens=1024,
+                        system=system,
+                        messages=[
+                            {'role': m['role'], 'content': m['content']}
+                            for m in st.session_state.messages
+                        ],
+                    )
+                    answer = resp.content[0].text
+                except Exception as e:
+                    if 'rate_limit' in str(e).lower() or 'overloaded' in str(e).lower():
+                        answer = "Claude is busy right now — wait 30 seconds and try again."
+                    else:
+                        answer = "Something went wrong. Please try again."
                 st.write(answer)
 
         st.session_state.messages.append({'role': 'assistant', 'content': answer})
