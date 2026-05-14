@@ -286,13 +286,33 @@ with tab_chat:
                     if len(w) > 2 and w.lower() not in stop_words]
 
         with_body = df_all[df_all['body'].notna()].copy()
-        if keywords:
-            pattern = '|'.join(keywords)
+
+        # Expand keywords with synonyms for common topics
+        SYNONYMS = {
+            'skin': ['skin', 'sensitiv', 'irritat', 'allerg', 'rash', 'eczema', 'reaction'],
+            'hormone': ['hormone', 'endocrin', 'disrupt', 'chemical', 'toxic', 'clean formula', 'natural'],
+            'safety': ['safe', 'harmful', 'chemical', 'toxic', 'natural', 'clean'],
+            'scent': ['scent', 'smell', 'fragrance', 'aroma'],
+            'clean': ['clean', 'wash', 'stain', 'dirt', 'soil'],
+        }
+        expanded = list(keywords)
+        for kw in keywords:
+            for base, syns in SYNONYMS.items():
+                if kw in base or base in kw:
+                    expanded.extend(syns)
+        expanded = list(set(expanded))
+
+        if expanded:
+            pattern = '|'.join(expanded)
             mask = (
                 with_body['body'].str.contains(pattern, case=False, na=False) |
                 with_body['title'].fillna('').str.contains(pattern, case=False, na=False)
             )
-            relevant = with_body[mask].head(80)
+            relevant = (
+                with_body[mask]
+                .sort_values('rating', ascending=False)
+                .head(200)
+            )
             if len(relevant) < 15:
                 recent = with_body[~with_body.index.isin(relevant.index)].sort_values('date_created', ascending=False).head(20)
                 relevant = pd.concat([relevant, recent])
@@ -300,7 +320,7 @@ with tab_chat:
             relevant = with_body.sort_values('date_created', ascending=False).head(60)
 
         sample_text = '\n'.join(
-            f"[{r['scent']} | {r['rating']}★] {r['title']}: {str(r['body'])[:300]}"
+            f"[{r['scent']} | {r['rating']}★] {r['title']}: {str(r['body'])[:400]}"
             for _, r in relevant.iterrows()
         )
 
