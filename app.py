@@ -19,6 +19,17 @@ SCENT_COLORS = {
     'FC': '#88BBAA', 'GH': '#F2C94C', 'HR': '#9B2335', 'MM': '#6BAED6',
     'SD': '#F4A460', 'VM': '#9B59B6',
 }
+SCENT_COLOR_MAP = {SCENT_NAMES[k]: v for k, v in SCENT_COLORS.items()}
+
+
+def safe_json_list(val):
+    if not val or (isinstance(val, float) and pd.isna(val)):
+        return []
+    try:
+        result = json.loads(val)
+        return [str(x).strip() for x in result if x] if isinstance(result, list) else []
+    except Exception:
+        return []
 
 
 @st.cache_data(ttl=3600)
@@ -26,6 +37,11 @@ def load_data():
     df = pd.read_csv('reviews.csv')
     df['date_created'] = pd.to_datetime(df['date_created'], utc=True).dt.tz_convert(None)
     df['scent'] = df['sku'].map(SCENT_NAMES).fillna(df['sku'])
+    for col in ('themes', 'standout_phrases', 'emotional_triggers'):
+        if col in df.columns:
+            df[f'{col}_list'] = df[col].apply(safe_json_list)
+        else:
+            df[f'{col}_list'] = [[] for _ in range(len(df))]
     return df
 
 
@@ -89,7 +105,7 @@ tab_themes, tab_attrs, tab_reviews, tab_chat = st.tabs([
     "Themes by Scent", "Profile Attributes", "Reviews", "Ask Claude"
 ])
 
-# ── Themes by Scent (cached at module level so failures don't get cached) ──────
+# ── Claude theme analysis (cached at module level) ─────────────────────────────
 @st.cache_data(show_spinner="Analyzing themes with Claude — this takes about 30 seconds...")
 def get_themes(review_count, max_date):
     client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
@@ -137,28 +153,132 @@ Reviews:
     return json.loads(raw)
 
 
+# ── Themes by Scent tab ────────────────────────────────────────────────────────
 with tab_themes:
-    st.caption("Claude-generated marketing themes per scent · Based on all reviews · Updates weekly with new data")
+    tagged_df = df[df['themes_list'].apply(len) > 0]
 
-    try:
-        themes_data = get_themes(len(df_all), str(df_all['date_created'].max().date()))
-    except Exception:
-        st.warning("Claude is temporarily busy — refresh the page in a minute to load themes.")
-        themes_data = None
+    # ── Heatmap ──────────────────────────────────────────────────────────────
+    if not tagged_df.empty:
+        exploded = (
+            tagged_df[['scent', 'themes_list']]
+            .explode('themes_list')
+            .rename(columns={'themes_list': 'theme'})
+        )
+        exploded = exploded[exploded['theme'].notna() & (exploded['theme'] != '')]
 
-    if themes_data:
-        skus_present = [s for s in sorted(SCENT_NAMES.keys()) if s in themes_data]
-        cols = st.columns(2)
-        for i, sku in enumerate(skus_present):
-            name = SCENT_NAMES.get(sku, sku)
-            color = SCENT_COLORS.get(sku, '#888')
-            scent_themes = themes_data.get(sku, {}).get('themes', [])
-            with cols[i % 2]:
-                st.markdown(f"#### {name}")
-                for t in scent_themes:
-                    with st.expander(f"**{t['theme']}** — {t['description']}"):
-                        st.markdown(f"*\"{t['example']}\"*")
-                st.divider()
+        top_themes = exploded['theme'].value_counts().head(15).index.tolist()
+        hm_data = (
+            exploded[exploded['theme'].isin(top_themes)]
+            .groupby(['scent', 'theme'])
+            .size()
+            .reset_index(name='count')
+        )
+        scent_totals = df.groupby('scent').size().rename('total').reset_index()
+        hm_data = hm_data.merge(scent_totals, on='scent')
+        hm_data['pct'] = (hm_data['count'] / hm_data['total'] * 100).round(1)
+
+        pivot = hm_data.pivot(index='theme', columns='scent', values='pct').fillna(0)
+        pivot = pivot.loc[pivot.sum(axis=1).sort_values(ascending=False).index]
+
+        fig_hm = px.imshow(
+            pivot,
+            labels=dict(color="% of Reviews"),
+            color_continuous_scale='Blues',
+            aspect='auto',
+            text_auto='.0f',
+        )
+        fig_hm.update_layout(
+            title="Theme Frequency by Scent (% of each scent's reviews tagged with that theme)",
+            height=560,
+            margin=dict(t=50, l=200, r=20, b=60),
+        )
+        st.plotly_chart(fig_hm, use_container_width=True)
+    else:
+        st.info("No tagged reviews in current filter.")
+
+    # ── Theme Detail ──────────────────────────────────────────────────────────
+    st.divider()
+    all_themes_available = sorted(set(t for tl in df['themes_list'] for t in tl if t))
+
+    if all_themes_available:
+        st.subheader("Theme Detail")
+        selected_theme = st.selectbox("Select a theme", all_themes_available, key='theme_select')
+
+        theme_df = df[df['themes_list'].apply(lambda x: selected_theme in x)]
+
+        # Trend: last 90d vs prior 90d (across all data, not filtered)
+        now = df_all['date_created'].max()
+        recent_cutoff = now - pd.Timedelta(days=90)
+        prior_cutoff = now - pd.Timedelta(days=180)
+        all_tagged_base = df_all[df_all['themes_list'].apply(len) > 0]
+        recent_base = all_tagged_base[all_tagged_base['date_created'] >= recent_cutoff]
+        prior_base = all_tagged_base[
+            (all_tagged_base['date_created'] >= prior_cutoff) &
+            (all_tagged_base['date_created'] < recent_cutoff)
+        ]
+        r_pct = recent_base['themes_list'].apply(lambda x: selected_theme in x).mean() if len(recent_base) else 0
+        p_pct = prior_base['themes_list'].apply(lambda x: selected_theme in x).mean() if len(prior_base) else 0
+
+        if p_pct == 0:
+            trend_str = "— New theme"
+        elif r_pct >= p_pct * 1.15:
+            trend_str = "↑ Trending up"
+        elif r_pct <= p_pct * 0.85:
+            trend_str = "↓ Trending down"
+        else:
+            trend_str = "→ Stable"
+
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Reviews tagged", len(theme_df))
+        mc2.metric("% of filtered reviews", f"{len(theme_df) / max(len(df), 1) * 100:.1f}%")
+        mc3.metric("Trend (90d vs prior 90d)", trend_str)
+
+        # Standout phrases from reviews with this theme
+        phrases = [p for tl in theme_df['standout_phrases_list'] for p in tl if p]
+        if phrases:
+            st.markdown("**Customer quotes:**")
+            qc1, qc2 = st.columns(2)
+            for i, phrase in enumerate(phrases[:10]):
+                with (qc1 if i % 2 == 0 else qc2):
+                    st.markdown(f"> *\"{phrase}\"*")
+
+        # Scent breakdown for selected theme
+        scent_bk = (
+            theme_df.groupby('scent').size()
+            .reset_index(name='count')
+            .sort_values('count', ascending=False)
+        )
+        fig_bk = px.bar(
+            scent_bk, x='scent', y='count',
+            title=f'"{selected_theme}" — mentions by scent',
+            color='scent', color_discrete_map=SCENT_COLOR_MAP,
+        )
+        fig_bk.update_layout(height=280, margin=dict(t=40), showlegend=False)
+        st.plotly_chart(fig_bk, use_container_width=True)
+
+    # ── Claude AI Analysis (collapsible) ─────────────────────────────────────
+    st.divider()
+    with st.expander("AI Deep Dive — Claude-generated theme analysis per scent", expanded=False):
+        st.caption("Claude reads the latest 40 reviews per scent and surfaces 4 marketing themes. Cached weekly.")
+        try:
+            themes_data = get_themes(len(df_all), str(df_all['date_created'].max().date()))
+        except Exception:
+            st.warning("Claude is temporarily busy — refresh the page in a minute to load themes.")
+            themes_data = None
+
+        if themes_data:
+            skus_present = [s for s in sorted(SCENT_NAMES.keys()) if s in themes_data]
+            ai_cols = st.columns(2)
+            for i, sku in enumerate(skus_present):
+                name = SCENT_NAMES.get(sku, sku)
+                scent_themes = themes_data.get(sku, {}).get('themes', [])
+                with ai_cols[i % 2]:
+                    st.markdown(f"#### {name}")
+                    for t in scent_themes:
+                        with st.expander(f"**{t['theme']}** — {t['description']}"):
+                            st.markdown(f"*\"{t['example']}\"*")
+                    st.divider()
+
 
 # ── Profile Attributes ─────────────────────────────────────────────────────────
 with tab_attrs:
@@ -257,31 +377,72 @@ with tab_attrs:
             fig_as.update_layout(height=320, margin=dict(t=40), xaxis_tickangle=-35)
             st.plotly_chart(fig_as, use_container_width=True)
 
+
 # ── Reviews ────────────────────────────────────────────────────────────────────
 with tab_reviews:
-    search = st.text_input("Search review text")
-    view = df[['date_created', 'scent', 'rating', 'title', 'body', 'is_recommended']].copy()
-    view['date_created'] = view['date_created'].dt.strftime('%Y-%m-%d')
+    rc1, rc2 = st.columns([3, 1])
+    with rc1:
+        search = st.text_input("Search review text")
+    with rc2:
+        sort_by = st.selectbox("Sort by", ["Most Recent", "Most Persuasive", "Highest Rated"])
+
+    view = df.copy()
+    view['has_standout'] = view['standout_phrases_list'].apply(len) > 0
+
     if search:
         mask = (
             view['body'].fillna('').str.contains(search, case=False) |
             view['title'].fillna('').str.contains(search, case=False)
         )
         view = view[mask]
-    st.dataframe(view.sort_values('date_created', ascending=False), use_container_width=True, height=520)
+
+    if sort_by == "Most Recent":
+        view = view.sort_values('date_created', ascending=False)
+    elif sort_by == "Most Persuasive":
+        view = view.sort_values(['has_standout', 'rating'], ascending=[False, False])
+    elif sort_by == "Highest Rated":
+        view = view.sort_values('rating', ascending=False)
+
+    display = view[['date_created', 'scent', 'rating', 'title', 'body', 'is_recommended']].copy()
+    display['date_created'] = display['date_created'].dt.strftime('%Y-%m-%d')
+    st.dataframe(display, use_container_width=True, height=520)
+
 
 # ── Ask Claude ─────────────────────────────────────────────────────────────────
 with tab_chat:
-    st.caption("Ask anything about the reviews shown in the current filtered view.")
+    st.caption("Ask anything about the reviews in the current filtered view.")
 
     if 'messages' not in st.session_state:
         st.session_state.messages = []
+    if 'inject_prompt' not in st.session_state:
+        st.session_state.inject_prompt = None
+
+    SUGGESTIONS = [
+        "What themes drive the most loyalty?",
+        "Best quotes for ad copy?",
+        "Which scent gets the most compliments?",
+        "What switching language are customers using?",
+        "What are skeptic-converted customers saying?",
+    ]
+    st.markdown("**Quick questions:**")
+    s_cols = st.columns(len(SUGGESTIONS))
+    for i, s in enumerate(SUGGESTIONS):
+        if s_cols[i].button(s, use_container_width=True, key=f'suggest_{i}'):
+            st.session_state.inject_prompt = s
+            st.rerun()
+
+    st.divider()
 
     for msg in st.session_state.messages:
         with st.chat_message(msg['role']):
             st.write(msg['content'])
 
-    if prompt := st.chat_input("e.g. What are customers saying about Vanilla Moon?"):
+    user_input = st.chat_input("e.g. What are customers saying about Vanilla Moon?")
+    prompt = st.session_state.inject_prompt or user_input
+    if st.session_state.inject_prompt:
+        st.session_state.inject_prompt = None
+
+    if prompt:
         st.session_state.messages.append({'role': 'user', 'content': prompt})
         with st.chat_message('user'):
             st.write(prompt)
@@ -294,7 +455,6 @@ with tab_chat:
             .to_string()
         ) if n else "No data"
 
-        # Search all reviews (full dataset, ignoring sidebar filters)
         stop_words = {'the','a','an','is','are','was','were','what','which','who','how',
                       'can','you','me','i','we','our','about','from','with','for','of',
                       'and','or','in','on','to','do','it','this','that','be','at','by'}
@@ -303,7 +463,6 @@ with tab_chat:
 
         with_body = df_all[df_all['body'].notna()].copy()
 
-        # Expand keywords with synonyms for common topics
         SYNONYMS = {
             'skin': ['skin', 'sensitiv', 'irritat', 'allerg', 'rash', 'eczema', 'reaction'],
             'hormone': ['hormone', 'endocrin', 'disrupt', 'chemical', 'toxic', 'clean formula', 'natural'],
