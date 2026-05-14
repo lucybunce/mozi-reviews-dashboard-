@@ -174,21 +174,26 @@ with tab_attrs:
         HOUSEHOLD_ORDER = ['1', '2 - 4', '5+']
 
         with col1:
-            age_counts = (
-                df['reviewer_age'].dropna()
-                .value_counts()
-                .reindex(AGE_ORDER)
-                .dropna()
-                .reset_index()
-            )
-            age_counts.columns = ['age', 'count']
-            fig_age = px.bar(
-                age_counts, x='age', y='count',
-                title='Reviewers by Age Group',
-                color_discrete_sequence=['#C8A96E'],
-            )
-            fig_age.update_layout(height=320, margin=dict(t=40))
-            st.plotly_chart(fig_age, use_container_width=True)
+            if 'reviewer_name' in df.columns:
+                repeat = (
+                    df[df['reviewer_name'].notna() & (df['reviewer_name'] != '')]
+                    .groupby('reviewer_name')
+                    .filter(lambda x: len(x) > 1)
+                )
+                repeat_by_scent = (
+                    repeat.groupby('scent').size()
+                    .reset_index(name='reviews_from_repeat_customers')
+                    .sort_values('reviews_from_repeat_customers', ascending=False)
+                )
+                fig_repeat = px.bar(
+                    repeat_by_scent, x='scent', y='reviews_from_repeat_customers',
+                    title='Reviews from Repeat Customers by Scent',
+                    color_discrete_sequence=['#C8A96E'],
+                )
+                fig_repeat.update_layout(height=320, margin=dict(t=40), xaxis_tickangle=-35)
+                st.plotly_chart(fig_repeat, use_container_width=True)
+            else:
+                st.info("Reviewer name data not yet available — run okendo_dashboard.py to update.")
 
             wash_counts = (
                 df['reviewer_washes'].dropna()
