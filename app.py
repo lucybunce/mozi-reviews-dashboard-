@@ -116,8 +116,8 @@ c4.metric("% Recommended", pct_rec_str)
 st.divider()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_themes, tab_hooks, tab_competitors, tab_usecases, tab_trends, tab_attrs, tab_reviews, tab_chat = st.tabs([
-    "Themes by Scent", "Marketing Hooks", "Competitor Mentions", "Use Cases", "Trends", "Profile Attributes", "Reviews", "Ask Claude"
+tab_themes, tab_hooks, tab_generators, tab_competitors, tab_usecases, tab_trends, tab_attrs, tab_reviews, tab_chat = st.tabs([
+    "Themes by Scent", "Marketing Hooks", "Generators", "Competitor Mentions", "Use Cases", "Trends", "Profile Attributes", "Reviews", "Ask Claude"
 ])
 
 # ── Claude theme analysis (cached at module level) ─────────────────────────────
@@ -633,6 +633,271 @@ with tab_trends:
         st.plotly_chart(fig_tt, use_container_width=True)
     else:
         st.info("No tagged reviews available for theme trends.")
+
+
+# ── Generators tab ────────────────────────────────────────────────────────────
+with tab_generators:
+    st.caption("AI copy tools trained on your real customer language — every output draws from actual review tags")
+
+    scent_options_gen = ['All scents'] + [SCENT_NAMES[s] for s in sorted(SCENT_NAMES.keys())]
+
+    def get_scent_df(scent_label):
+        if scent_label == 'All scents':
+            return df
+        sku = next((k for k, v in SCENT_NAMES.items() if v == scent_label), None)
+        return df[df['sku'] == sku] if sku else df
+
+    def get_gen_context(sdf):
+        phrases = list(set(p for tl in sdf['standout_phrases_list'] for p in tl if p))[:25]
+        triggers = [t for tl in sdf['emotional_triggers_list'] for t in tl if t]
+        top_triggers = pd.Series(triggers).value_counts().head(8).to_dict() if triggers else {}
+        switch_quotes = [
+            r['switching_language_parsed'].get('quote', '')
+            for _, r in sdf.iterrows()
+            if r['switching_language_parsed'].get('detected') and r['switching_language_parsed'].get('quote')
+        ][:8]
+        skeptic_quotes = [
+            r['skeptic_converted_parsed'].get('quote', '')
+            for _, r in sdf.iterrows()
+            if r['skeptic_converted_parsed'].get('detected') and r['skeptic_converted_parsed'].get('quote')
+        ][:8]
+        comp_phrases = list(set(p for tl in sdf['comparison_phrases_list'] for p in tl if p))[:10]
+        top_themes = pd.Series(
+            [t for tl in sdf['themes_list'] for t in tl if t]
+        ).value_counts().head(5).to_dict()
+        return dict(phrases=phrases, triggers=top_triggers, switch_quotes=switch_quotes,
+                    skeptic_quotes=skeptic_quotes, comp_phrases=comp_phrases, themes=top_themes)
+
+    def show_lines(result_key):
+        if st.session_state.get(result_key):
+            st.divider()
+            for line in [l.strip() for l in st.session_state[result_key].strip().split('\n') if l.strip()]:
+                st.code(line, language=None)
+
+    gen_client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+
+    g1, g2, g3, g4, g5, g6 = st.tabs([
+        "Hook Generator", "Testimonial Picker", "Subject Lines",
+        "Landing Page", "TikTok Script", "Scent Personality",
+    ])
+
+    # ── Hook Generator ──
+    with g1:
+        st.subheader("Hook Generator")
+        st.caption("5 ad hooks written in your customers' own voice")
+        hg_scent = st.selectbox("Scent", scent_options_gen, key='hg_scent')
+        hg_style = st.selectbox("Hook style", [
+            "Sensory / scent-first", "Social proof / compliments",
+            "Switching story", "Skeptic converted", "Emotional / lifestyle",
+        ], key='hg_style')
+        if st.button("Generate hooks", key='hg_btn'):
+            ctx = get_gen_context(get_scent_df(hg_scent))
+            scent_str = '' if hg_scent == 'All scents' else f' — {hg_scent}'
+            prompt = f"""Write 5 short ad hooks for Mozi Wash{scent_str}. Style: {hg_style}
+
+Real customer language (use their words, not generic marketing):
+Standout quotes: {ctx['phrases'][:20]}
+Top emotional triggers: {ctx['triggers']}
+Switching stories: {ctx['switch_quotes']}
+Comparison phrases: {ctx['comp_phrases']}
+
+Rules: under 15 words each · vivid and specific · sound like a real person · each hook takes a different angle · no hashtags, emojis, or "Introducing"
+
+Return exactly 5 hooks, one per line, no numbering or bullets."""
+            with st.spinner("Generating..."):
+                try:
+                    st.session_state['hg_result'] = gen_client.messages.create(
+                        model='claude-sonnet-4-6', max_tokens=400,
+                        messages=[{'role': 'user', 'content': prompt}],
+                    ).content[0].text
+                except Exception:
+                    st.error("Generation failed — try again.")
+        show_lines('hg_result')
+
+    # ── Testimonial Picker ──
+    with g2:
+        st.subheader("Testimonial Picker")
+        st.caption("Finds the most persuasive reviews for a specific audience or use case")
+        tp_scent = st.selectbox("Scent", scent_options_gen, key='tp_scent')
+        tp_audience = st.text_input("Target audience or use case",
+            placeholder="e.g. new moms, fitness enthusiasts, gift buyers, sensitive skin", key='tp_audience')
+        if st.button("Find testimonials", key='tp_btn') and tp_audience:
+            sdf = get_scent_df(tp_scent)
+            sample = sdf[sdf['body'].notna()].sort_values('rating', ascending=False).head(80)
+            review_text = '\n'.join(
+                f"[{i}] {r['scent']} {int(r['rating'])}★: {str(r['body'])[:300]}"
+                for i, (_, r) in enumerate(sample.iterrows(), 1)
+            )
+            prompt = f"""Pick the 5 best testimonials for this target audience: "{tp_audience}"
+
+Select reviews that will resonate most — prioritize specificity, relatability, vivid language.
+
+Reviews:
+{review_text}
+
+For each: paste the exact review text (unedited), then one sentence on why it works for this audience. Number them 1–5."""
+            with st.spinner("Finding best testimonials..."):
+                try:
+                    st.session_state['tp_result'] = gen_client.messages.create(
+                        model='claude-sonnet-4-6', max_tokens=1024,
+                        messages=[{'role': 'user', 'content': prompt}],
+                    ).content[0].text
+                except Exception:
+                    st.error("Generation failed — try again.")
+        if st.session_state.get('tp_result'):
+            st.divider()
+            st.markdown(st.session_state['tp_result'])
+
+    # ── Subject Lines ──
+    with g3:
+        st.subheader("Subject Line Generator")
+        st.caption("Email subject lines built from customer language")
+        sl_scent = st.selectbox("Scent focus", scent_options_gen, key='sl_scent')
+        sl_angle = st.selectbox("Campaign angle", [
+            "New scent / product launch", "Gifting season",
+            "Re-engagement / win-back", "Seasonal refresh", "Social proof / bestseller",
+        ], key='sl_angle')
+        if st.button("Generate subject lines", key='sl_btn'):
+            ctx = get_gen_context(get_scent_df(sl_scent))
+            scent_str = '' if sl_scent == 'All scents' else f' — {sl_scent}'
+            prompt = f"""Write 5 email subject lines for Mozi Wash{scent_str}. Campaign: {sl_angle}
+
+Customer language:
+Standout phrases: {ctx['phrases'][:15]}
+Top emotions: {ctx['triggers']}
+Top themes: {ctx['themes']}
+
+Rules: under 50 chars ideally · specific and intriguing · mix curiosity, social proof, direct benefit · no spam words (free, %, !!!)
+
+Return 5 subject lines, one per line, no numbering."""
+            with st.spinner("Generating..."):
+                try:
+                    st.session_state['sl_result'] = gen_client.messages.create(
+                        model='claude-sonnet-4-6', max_tokens=300,
+                        messages=[{'role': 'user', 'content': prompt}],
+                    ).content[0].text
+                except Exception:
+                    st.error("Generation failed — try again.")
+        show_lines('sl_result')
+
+    # ── Landing Page Block ──
+    with g4:
+        st.subheader("Landing Page Block Builder")
+        st.caption("Copy blocks for product pages — grounded in real customer language")
+        lp_scent = st.selectbox("Scent", list(SCENT_NAMES.values()), key='lp_scent')
+        lp_block = st.selectbox("Block type", [
+            "Hero headline + subhead",
+            "Social proof section (3 quotes + intro)",
+            "Product description paragraph",
+            "FAQ — common objections answered",
+        ], key='lp_block')
+        if st.button("Build block", key='lp_btn'):
+            sku = next((k for k, v in SCENT_NAMES.items() if v == lp_scent), None)
+            sdf = df[df['sku'] == sku] if sku else df
+            ctx = get_gen_context(sdf)
+            prompt = f"""Write a {lp_block} for the Mozi Wash {lp_scent} product page.
+
+About Mozi Wash: Premium laundry detergent in a beautiful metal tin. Clean ingredients, incredible scents, for people who care about their home environment.
+
+Real customer language for {lp_scent}:
+Standout quotes: {ctx['phrases'][:15]}
+Top emotional triggers: {ctx['triggers']}
+Top themes: {ctx['themes']}
+Switching quotes: {ctx['switch_quotes'][:3]}
+
+Write copy that feels premium, specific to this scent, and grounded in real customer language. No fluff."""
+            with st.spinner("Building..."):
+                try:
+                    st.session_state['lp_result'] = gen_client.messages.create(
+                        model='claude-sonnet-4-6', max_tokens=600,
+                        messages=[{'role': 'user', 'content': prompt}],
+                    ).content[0].text
+                except Exception:
+                    st.error("Generation failed — try again.")
+        if st.session_state.get('lp_result'):
+            st.divider()
+            st.markdown(st.session_state['lp_result'])
+
+    # ── TikTok Script Seed ──
+    with g5:
+        st.subheader("TikTok Script Seed")
+        st.caption("Short-form video outlines based on real customer stories")
+        tt_scent = st.selectbox("Scent", scent_options_gen, key='tt_scent')
+        tt_angle = st.selectbox("Video angle", [
+            "Skeptic story (I was doubtful until...)",
+            "Scent reveal / reaction",
+            "Switching story (I used to use X...)",
+            "Day in the life / routine",
+            "Gift reveal",
+        ], key='tt_angle')
+        if st.button("Generate script seed", key='tt_btn'):
+            ctx = get_gen_context(get_scent_df(tt_scent))
+            scent_str = '' if tt_scent == 'All scents' else f' — {tt_scent}'
+            prompt = f"""Write a TikTok script seed for Mozi Wash{scent_str}. Angle: {tt_angle}
+
+Real customer stories:
+Standout phrases: {ctx['phrases'][:15]}
+Skeptic quotes: {ctx['skeptic_quotes']}
+Switching quotes: {ctx['switch_quotes']}
+Emotional triggers: {ctx['triggers']}
+
+Format:
+HOOK (0-3s): [opening line that stops the scroll]
+SETUP (3-10s): [context / who this is for]
+PAYOFF (10-25s): [the reveal / emotional moment]
+CTA (25-30s): [what to do next]
+
+Conversational, specific, grounded in real customer language. Should feel like someone telling a friend, not an ad."""
+            with st.spinner("Generating..."):
+                try:
+                    st.session_state['tt_result'] = gen_client.messages.create(
+                        model='claude-sonnet-4-6', max_tokens=500,
+                        messages=[{'role': 'user', 'content': prompt}],
+                    ).content[0].text
+                except Exception:
+                    st.error("Generation failed — try again.")
+        if st.session_state.get('tt_result'):
+            st.divider()
+            st.markdown(st.session_state['tt_result'])
+
+    # ── Scent Personality ──
+    with g6:
+        st.subheader("Scent Personality Generator")
+        st.caption("Who actually buys this scent and how to talk to them")
+        sp_scent = st.selectbox("Scent", list(SCENT_NAMES.values()), key='sp_scent')
+        if st.button("Generate personality profile", key='sp_btn'):
+            sku = next((k for k, v in SCENT_NAMES.items() if v == sp_scent), None)
+            sdf = df[df['sku'] == sku] if sku else df
+            ctx = get_gen_context(sdf)
+            age_data = sdf['reviewer_age'].dropna().value_counts().head(3).to_dict() if 'reviewer_age' in sdf.columns else {}
+            prompt = f"""Create a scent personality profile for Mozi Wash {sp_scent} based on real customer data.
+
+Customer data:
+Standout phrases: {ctx['phrases'][:20]}
+Top emotional triggers: {ctx['triggers']}
+Top themes: {ctx['themes']}
+Age breakdown: {age_data}
+Review count: {len(sdf)}
+
+Write a profile covering:
+1. **Who she is** — 2-3 sentence archetype
+2. **What she values** — 3-4 bullets
+3. **How she talks about it** — the specific language and phrases she uses
+4. **Best ad angles** — 3 specific angles that resonate with her
+5. **Scent in one sentence** — a single vivid positioning line
+
+Base everything on the real data. Be specific, not generic."""
+            with st.spinner("Building profile..."):
+                try:
+                    st.session_state['sp_result'] = gen_client.messages.create(
+                        model='claude-sonnet-4-6', max_tokens=800,
+                        messages=[{'role': 'user', 'content': prompt}],
+                    ).content[0].text
+                except Exception:
+                    st.error("Generation failed — try again.")
+        if st.session_state.get('sp_result'):
+            st.divider()
+            st.markdown(st.session_state['sp_result'])
 
 
 # ── Profile Attributes ─────────────────────────────────────────────────────────
