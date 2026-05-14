@@ -116,8 +116,8 @@ c4.metric("% Recommended", pct_rec_str)
 st.divider()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_themes, tab_hooks, tab_competitors, tab_usecases, tab_attrs, tab_reviews, tab_chat = st.tabs([
-    "Themes by Scent", "Marketing Hooks", "Competitor Mentions", "Use Cases", "Profile Attributes", "Reviews", "Ask Claude"
+tab_themes, tab_hooks, tab_competitors, tab_usecases, tab_trends, tab_attrs, tab_reviews, tab_chat = st.tabs([
+    "Themes by Scent", "Marketing Hooks", "Competitor Mentions", "Use Cases", "Trends", "Profile Attributes", "Reviews", "Ask Claude"
 ])
 
 # ── Claude theme analysis (cached at module level) ─────────────────────────────
@@ -528,6 +528,111 @@ with tab_usecases:
             for i, phrase in enumerate(uc_phrases[:8]):
                 with (uqc1 if i % 2 == 0 else uqc2):
                     st.markdown(f"> *\"{phrase}\"*")
+
+
+# ── Trends Over Time tab ──────────────────────────────────────────────────────
+with tab_trends:
+    st.caption("Full history shown here — date range filter ignored, scent filter applies")
+
+    trends_df = df_all.copy()
+    if sel_scents:
+        trends_df = trends_df[trends_df['sku'].isin(sel_scents)]
+
+    gran = st.radio("Granularity", ["Monthly", "Weekly"], horizontal=True, key='trends_gran')
+    trends_df['period'] = trends_df['date_created'].dt.to_period(
+        'M' if gran == "Monthly" else 'W'
+    ).dt.to_timestamp()
+
+    # ── Event annotations ──
+    if 'events' not in st.session_state:
+        st.session_state.events = []
+
+    with st.expander("Event annotations", expanded=False):
+        ec1, ec2, ec3 = st.columns([2, 4, 1])
+        with ec1:
+            evt_date = st.date_input("Date", key='evt_date')
+        with ec2:
+            evt_label = st.text_input("Label (e.g. 'Launched Alpine Woods')", key='evt_label')
+        with ec3:
+            st.write("")
+            st.write("")
+            if st.button("Add", key='evt_add') and evt_label:
+                st.session_state.events.append({'date': str(evt_date), 'label': evt_label})
+                st.rerun()
+        if st.session_state.events:
+            for e in st.session_state.events:
+                st.caption(f"· {e['date']}: {e['label']}")
+            if st.button("Clear all", key='evt_clear'):
+                st.session_state.events = []
+                st.rerun()
+
+    def add_events_to_fig(fig):
+        for evt in st.session_state.get('events', []):
+            ts = pd.Timestamp(evt['date'])
+            fig.add_vline(x=ts, line_dash='dash', line_color='rgba(220,80,80,0.5)', line_width=1.5)
+            fig.add_annotation(
+                x=ts, y=1.02, yref='paper',
+                text=evt['label'], showarrow=False,
+                textangle=-30, font=dict(size=9, color='rgba(220,80,80,0.9)'),
+                xanchor='left',
+            )
+        return fig
+
+    # ── Review Volume ──
+    vol = trends_df.groupby('period').size().reset_index(name='reviews')
+    fig_vol = px.bar(vol, x='period', y='reviews', title='Review Volume Over Time',
+                     color_discrete_sequence=['#4F86C6'])
+    fig_vol.update_layout(height=300, margin=dict(t=40))
+    fig_vol = add_events_to_fig(fig_vol)
+    st.plotly_chart(fig_vol, use_container_width=True)
+
+    # ── Avg Rating Trend ──
+    rating_trend = (
+        trends_df.groupby('period')['rating']
+        .mean()
+        .reset_index()
+        .rename(columns={'rating': 'avg_rating'})
+        .round(2)
+    )
+    fig_rating = px.line(rating_trend, x='period', y='avg_rating',
+                         title='Average Rating Over Time', markers=True,
+                         color_discrete_sequence=['#F2C94C'])
+    fig_rating.update_layout(height=280, margin=dict(t=40), yaxis=dict(range=[3.5, 5.1]))
+    fig_rating = add_events_to_fig(fig_rating)
+    st.plotly_chart(fig_rating, use_container_width=True)
+
+    # ── Theme Trends ──
+    tagged_trends = trends_df[trends_df['themes_list'].apply(len) > 0]
+    if not tagged_trends.empty:
+        all_t = [t for tl in tagged_trends['themes_list'] for t in tl if t]
+        top8 = pd.Series(all_t).value_counts().head(8).index.tolist()
+
+        monthly_totals = tagged_trends.groupby('period').size().rename('total')
+        trend_rows = []
+        for theme in top8:
+            with_theme = (
+                tagged_trends[tagged_trends['themes_list'].apply(lambda x: theme in x)]
+                .groupby('period').size().rename('with_theme')
+            )
+            merged = monthly_totals.to_frame().join(with_theme, how='left').fillna(0)
+            merged['pct'] = (merged['with_theme'] / merged['total'] * 100).round(1)
+            merged['theme'] = theme
+            trend_rows.append(merged.reset_index())
+
+        theme_trend_df = pd.concat(trend_rows)
+        fig_tt = px.line(
+            theme_trend_df, x='period', y='pct', color='theme',
+            title='Theme Mention Rate Over Time (% of tagged reviews)',
+        )
+        fig_tt.update_layout(
+            height=400, margin=dict(t=40),
+            yaxis_title='% of Reviews',
+            legend=dict(orientation='h', yanchor='bottom', y=-0.45),
+        )
+        fig_tt = add_events_to_fig(fig_tt)
+        st.plotly_chart(fig_tt, use_container_width=True)
+    else:
+        st.info("No tagged reviews available for theme trends.")
 
 
 # ── Profile Attributes ─────────────────────────────────────────────────────────
