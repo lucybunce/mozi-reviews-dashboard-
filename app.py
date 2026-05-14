@@ -311,7 +311,6 @@ with tab_chat:
             relevant = (
                 with_body[mask]
                 .sort_values('rating', ascending=False)
-                .head(200)
             )
             if len(relevant) < 15:
                 recent = with_body[~with_body.index.isin(relevant.index)].sort_values('date_created', ascending=False).head(20)
@@ -320,7 +319,7 @@ with tab_chat:
             relevant = with_body.sort_values('date_created', ascending=False).head(60)
 
         sample_text = '\n'.join(
-            f"[{r['scent']} | {r['rating']}★] {r['title']}: {str(r['body'])[:400]}"
+            f"[{r['scent']} | {r['rating']}★] {r['title']}: {str(r['body'])[:200]}"
             for _, r in relevant.iterrows()
         )
 
