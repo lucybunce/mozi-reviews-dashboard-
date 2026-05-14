@@ -32,16 +32,31 @@ def safe_json_list(val):
         return []
 
 
+def safe_json_dict(val):
+    if not val or (isinstance(val, float) and pd.isna(val)):
+        return {}
+    try:
+        result = json.loads(val)
+        return result if isinstance(result, dict) else {}
+    except Exception:
+        return {}
+
+
 @st.cache_data(ttl=3600)
 def load_data():
     df = pd.read_csv('reviews.csv')
     df['date_created'] = pd.to_datetime(df['date_created'], utc=True).dt.tz_convert(None)
     df['scent'] = df['sku'].map(SCENT_NAMES).fillna(df['sku'])
-    for col in ('themes', 'standout_phrases', 'emotional_triggers'):
+    for col in ('themes', 'standout_phrases', 'emotional_triggers', 'comparison_phrases'):
         if col in df.columns:
             df[f'{col}_list'] = df[col].apply(safe_json_list)
         else:
             df[f'{col}_list'] = [[] for _ in range(len(df))]
+    for col in ('switching_language', 'skeptic_converted'):
+        if col in df.columns:
+            df[f'{col}_parsed'] = df[col].apply(safe_json_dict)
+        else:
+            df[f'{col}_parsed'] = [{} for _ in range(len(df))]
     return df
 
 
@@ -101,8 +116,8 @@ c4.metric("% Recommended", pct_rec_str)
 st.divider()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_themes, tab_attrs, tab_reviews, tab_chat = st.tabs([
-    "Themes by Scent", "Profile Attributes", "Reviews", "Ask Claude"
+tab_themes, tab_hooks, tab_attrs, tab_reviews, tab_chat = st.tabs([
+    "Themes by Scent", "Marketing Hooks", "Profile Attributes", "Reviews", "Ask Claude"
 ])
 
 # ── Claude theme analysis (cached at module level) ─────────────────────────────
@@ -157,7 +172,6 @@ Reviews:
 with tab_themes:
     tagged_df = df[df['themes_list'].apply(len) > 0]
 
-    # ── Heatmap ──────────────────────────────────────────────────────────────
     if not tagged_df.empty:
         exploded = (
             tagged_df[['scent', 'themes_list']]
@@ -196,7 +210,6 @@ with tab_themes:
     else:
         st.info("No tagged reviews in current filter.")
 
-    # ── Theme Detail ──────────────────────────────────────────────────────────
     st.divider()
     all_themes_available = sorted(set(t for tl in df['themes_list'] for t in tl if t))
 
@@ -206,7 +219,6 @@ with tab_themes:
 
         theme_df = df[df['themes_list'].apply(lambda x: selected_theme in x)]
 
-        # Trend: last 90d vs prior 90d (across all data, not filtered)
         now = df_all['date_created'].max()
         recent_cutoff = now - pd.Timedelta(days=90)
         prior_cutoff = now - pd.Timedelta(days=180)
@@ -233,7 +245,6 @@ with tab_themes:
         mc2.metric("% of filtered reviews", f"{len(theme_df) / max(len(df), 1) * 100:.1f}%")
         mc3.metric("Trend (90d vs prior 90d)", trend_str)
 
-        # Standout phrases from reviews with this theme
         phrases = [p for tl in theme_df['standout_phrases_list'] for p in tl if p]
         if phrases:
             st.markdown("**Customer quotes:**")
@@ -242,7 +253,6 @@ with tab_themes:
                 with (qc1 if i % 2 == 0 else qc2):
                     st.markdown(f"> *\"{phrase}\"*")
 
-        # Scent breakdown for selected theme
         scent_bk = (
             theme_df.groupby('scent').size()
             .reset_index(name='count')
@@ -256,7 +266,6 @@ with tab_themes:
         fig_bk.update_layout(height=280, margin=dict(t=40), showlegend=False)
         st.plotly_chart(fig_bk, use_container_width=True)
 
-    # ── Claude AI Analysis (collapsible) ─────────────────────────────────────
     st.divider()
     with st.expander("AI Deep Dive — Claude-generated theme analysis per scent", expanded=False):
         st.caption("Claude reads the latest 40 reviews per scent and surfaces 4 marketing themes. Cached weekly.")
@@ -278,6 +287,120 @@ with tab_themes:
                         with st.expander(f"**{t['theme']}** — {t['description']}"):
                             st.markdown(f"*\"{t['example']}\"*")
                     st.divider()
+
+
+# ── Marketing Hooks tab ────────────────────────────────────────────────────────
+with tab_hooks:
+    hdr_col, refresh_col = st.columns([6, 1])
+    with hdr_col:
+        st.caption("Customer language ready for ad copy — pulled directly from tagged reviews")
+    with refresh_col:
+        if st.button("Refresh", key='hooks_refresh'):
+            load_data.clear()
+            st.rerun()
+
+    # ── Ad-Ready Phrases ──────────────────────────────────────────────────────
+    st.subheader("Ad-Ready Phrases")
+    st.caption("Vivid, specific customer quotes under 15 words — tagged as standout by Claude")
+
+    all_phrases = [
+        {'phrase': p, 'scent': row['scent'], 'rating': row['rating']}
+        for _, row in df.iterrows()
+        for p in row['standout_phrases_list'] if p
+    ]
+
+    if all_phrases:
+        phrases_df = pd.DataFrame(all_phrases).drop_duplicates(subset='phrase')
+        p_cols = st.columns(3)
+        for i, (_, row) in enumerate(phrases_df.head(30).iterrows()):
+            with p_cols[i % 3]:
+                st.code(row['phrase'], language=None)
+                st.caption(f"{row['scent']} · {int(row['rating'])}★")
+    else:
+        st.info("No standout phrases in current filter.")
+
+    # ── Switching Stories ──────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Switching Stories")
+    st.caption("Customers who explicitly mention switching to Mozi from another brand")
+
+    switch_rows = df[df['switching_language_parsed'].apply(
+        lambda x: x.get('detected') is True and bool((x.get('quote') or '').strip())
+    )]
+
+    if not switch_rows.empty:
+        st.caption(f"{len(switch_rows)} reviews with switching language")
+        sw_cols = st.columns(2)
+        for i, (_, row) in enumerate(switch_rows.head(20).iterrows()):
+            quote = row['switching_language_parsed'].get('quote', '')
+            with sw_cols[i % 2]:
+                st.code(quote, language=None)
+                st.caption(f"{row['scent']} · {int(row['rating'])}★")
+    else:
+        st.info("No switching language detected in current filter.")
+
+    # ── Skeptic Converts ───────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Skeptic Converts")
+    st.caption("Former skeptics who became believers — powerful social proof")
+
+    skeptic_rows = df[df['skeptic_converted_parsed'].apply(
+        lambda x: x.get('detected') is True and bool((x.get('quote') or '').strip())
+    )]
+
+    if not skeptic_rows.empty:
+        st.caption(f"{len(skeptic_rows)} skeptic-converted reviews")
+        sk_cols = st.columns(2)
+        for i, (_, row) in enumerate(skeptic_rows.head(20).iterrows()):
+            quote = row['skeptic_converted_parsed'].get('quote', '')
+            with sk_cols[i % 2]:
+                st.code(quote, language=None)
+                st.caption(f"{row['scent']} · {int(row['rating'])}★")
+    else:
+        st.info("No skeptic-converted language detected in current filter.")
+
+    # ── Comparison Phrases ─────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Comparison Phrases")
+    st.caption("Customers comparing Mozi to other brands, scents, or experiences")
+
+    all_comp = [
+        {'phrase': p, 'scent': row['scent'], 'rating': row['rating']}
+        for _, row in df.iterrows()
+        for p in row['comparison_phrases_list'] if p
+    ]
+
+    if all_comp:
+        comp_df = pd.DataFrame(all_comp).drop_duplicates(subset='phrase')
+        st.caption(f"{len(comp_df)} comparison phrases")
+        cp_cols = st.columns(2)
+        for i, (_, row) in enumerate(comp_df.head(30).iterrows()):
+            with cp_cols[i % 2]:
+                st.code(row['phrase'], language=None)
+                st.caption(f"{row['scent']} · {int(row['rating'])}★")
+    else:
+        st.info("No comparison phrases found in current filter.")
+
+    # ── Emotional Triggers ─────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Emotional Triggers")
+
+    all_triggers = [t for tl in df['emotional_triggers_list'] for t in tl if t]
+    if all_triggers:
+        trigger_counts = pd.Series(all_triggers).value_counts().head(12).reset_index()
+        trigger_counts.columns = ['trigger', 'count']
+        fig_trig = px.bar(
+            trigger_counts, x='count', y='trigger', orientation='h',
+            title='Most Common Emotional Triggers across Reviews',
+            color_discrete_sequence=['#9B59B6'],
+        )
+        fig_trig.update_layout(
+            height=400, margin=dict(t=40, l=160),
+            yaxis={'categoryorder': 'total ascending'},
+        )
+        st.plotly_chart(fig_trig, use_container_width=True)
+    else:
+        st.info("No emotional triggers found in current filter.")
 
 
 # ── Profile Attributes ─────────────────────────────────────────────────────────
