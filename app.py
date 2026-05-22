@@ -60,6 +60,16 @@ def load_data():
     return df
 
 
+@st.cache_data(ttl=3600)
+def load_weekly_analysis():
+    try:
+        with open('weekly_analysis.json', encoding='utf-8') as f:
+            d = json.load(f)
+        return d.get('week_date'), d.get('new_review_count'), d.get('analysis', {})
+    except Exception:
+        return None, None, {}
+
+
 try:
     df_all = load_data()
 except FileNotFoundError:
@@ -1179,11 +1189,11 @@ with tab_chat:
         st.session_state.inject_prompt = None
 
     SUGGESTIONS = [
-        "What themes drive the most loyalty?",
-        "Best quotes for ad copy?",
-        "Which scent gets the most compliments?",
-        "What switching language are customers using?",
-        "What are skeptic-converted customers saying?",
+        "What are the biggest risks to retention right now?",
+        "Which scent has the strongest word-of-mouth signal?",
+        "What should we say in ads this week?",
+        "Where are customers most likely to churn and why?",
+        "What product or scent changes are customers asking for?",
     ]
     st.markdown("**Quick questions:**")
     s_cols = st.columns(len(SUGGESTIONS))
@@ -1261,19 +1271,88 @@ with tab_chat:
         )
 
         avg_str = f"{df['rating'].mean():.2f}" if n else 'N/A'
-        system = f"""You are a marketing analyst for Mozi Wash, a premium laundry detergent brand sold in beautiful metal tins.
-Competitors: Frey, Dirty Labs, Tyler Candle. Core customer: women who love premium home goods and care deeply about scent.
 
+        wa_week, wa_count, wa = load_weekly_analysis()
+        weekly_intel = ""
+        if wa:
+            themes_str = '\n'.join(
+                f"  - {t['theme']} ({t['count']} mentions): {t['description'][:180]}"
+                for t in wa.get('themes', [])
+            )
+            phrases_str = '\n'.join(
+                f"  - \"{p['phrase']}\" (x{p['count']}) — {p['angle']}"
+                for p in wa.get('phrases', [])[:6]
+            )
+            emerging_str = '\n'.join(
+                f"  - {e['observation']} | Why it matters: {e['why_notable'][:150]}"
+                for e in wa.get('emerging', [])
+            )
+            by_scent_lines = []
+            for sku, info in wa.get('by_scent', {}).items():
+                scent_name = SCENT_NAMES.get(sku, sku)
+                sentiment = info.get('sentiment', '')
+                notable = info.get('notable', '')
+                top_phrase = info.get('top_phrase', '')
+                if notable and notable != 'No reviews identified for this SKU in this window':
+                    line = f"  - {sku} ({scent_name}): {sentiment}"
+                    if top_phrase:
+                        line += f" | Top phrase: \"{top_phrase}\""
+                    line += f" | {notable[:200]}"
+                    by_scent_lines.append(line)
+            by_scent_str = '\n'.join(by_scent_lines)
+
+            weekly_intel = f"""
+── LATEST WEEKLY INTELLIGENCE (week of {wa_week}, {wa_count} reviews analyzed) ──
+
+Top themes this period:
+{themes_str}
+
+Standout customer phrases:
+{phrases_str}
+
+By scent:
+{by_scent_str}
+
+Emerging signals:
+{emerging_str}
+"""
+
+        system = f"""You are a senior brand strategist and marketing analyst for Mozi Wash. Answer strategically — connect insights to business implications, not just describe what customers said.
+
+── BRAND BRIEF ──
+Mozi Wash is a premium laundry detergent sold in elegant metal tins, marketed as a sensory upgrade to everyday laundry. DTC brand, sold via subscription and one-time purchase. Price point is premium — customers are making a considered purchase and expect a luxury experience.
+
+Scent lineup (10 SKUs):
+  AW – Alpine Woods: woodsy, outdoorsy, masculine-leaning. Strong male household approval signal.
+  CC – Central Coast: bright, clean, coastal. High volume of stranger-compliment mentions; some "too masculine" or "too strong" feedback.
+  CZ – Signature Cozy: warm, cozy, soft. Known scent-longevity issue on the March 2026 batch (6 Degrees vendor) — customers report scent fading post-dryer.
+  DP – Desert Poppy: floral-adjacent, warm. Occasional reports of color/consistency changes between batches.
+  FC – Free & Clear: fragrance-free, sensitivity-focused. Lower review volume.
+  GH – Golden Hour: warm, golden, designer-adjacent (customers compare to Le Labo Santal 33).
+  HR – Hollywood Rouge: bold, glamorous, feminine. Recent scent-longevity complaints emerging.
+  MM – Malibu Mornings: fresh, beachy, light.
+  SD – Sugar Dew: sweet, soft, feminine.
+  VM – Vanilla Moon: warm, vanilla-forward. Generates "mistaken for perfume" moments; some fade-after-drying feedback.
+
+Business model: subscription-first DTC. Subscription complaints are a real churn signal. Samples are a key conversion funnel — many reviews explicitly mention starting with a sample pack then subscribing.
+
+Core customer: women who treat laundry as a sensory ritual, love premium home goods, and will pay more for scent that lasts. They share and compare with household members; male household approval ("my husband loves it") is a recurring loyalty signal.
+
+Competitors: Frey (clean/functional positioning), Dirty Labs (performance/science), Tyler Candle (luxury scent adjacent), Laundry Sauce (mentioned by switchers, negative customer service rep).
+
+Operational context: Products come from two vendors — 6 Degrees (March Order batch, started arriving April 2026) and Product Society (January Order batch). The March Order - 6 Degrees batch has generated a pattern of scent-longevity complaints across multiple SKUs, most concentrated in CZ and HR. This is a known quality signal worth flagging when relevant.
+
+── DATA CONTEXT ──
 Total database: {len(df_all):,} reviews (all time) · Filtered view: {n:,} reviews · Avg rating: {avg_str}
 Scent breakdown (mean rating, count):
 {scent_summary}
+{weekly_intel}
+── MATCHED REVIEWS ──
+IMPORTANT: The {len(relevant)} reviews below are the complete matched set for this query. Pull examples directly from this list. Do not say you need more data.
 
-IMPORTANT: The {len(relevant)} reviews below are the COMPLETE set of matched reviews from the full database for this query — not a sample. You have everything. When asked for more examples, pull directly from the list below. Do not say you need to query the database or that you only have a sample.
-
-Reviews ({len(relevant)} total matched):
 {sample_text}
 
-Answer concisely. Focus on actionable marketing insights when relevant."""
+Be direct and strategic. Lead with the insight, not the methodology."""
 
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
