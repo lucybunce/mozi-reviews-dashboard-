@@ -70,6 +70,62 @@ def load_weekly_analysis():
         return None, None, {}
 
 
+@st.cache_data(ttl=3600)
+def build_aggregate_context(df):
+    from collections import Counter
+    lines = []
+    n = len(df)
+    date_min = str(df['date_created'].min())[:10]
+    date_max = str(df['date_created'].max())[:10]
+    lines.append(f"ALL-TIME AGGREGATE ({n:,} reviews · {date_min} to {date_max})")
+    lines.append("")
+
+    # Per-scent stats
+    lines.append("By scent:")
+    scent_stats = (
+        df.groupby('scent')['rating']
+        .agg(count='count', avg=('mean'))
+        .round(2)
+        .sort_values('count', ascending=False)
+    )
+    for scent, row in scent_stats.iterrows():
+        sdf = df[df['scent'] == scent]
+        pct5 = int((sdf['rating'] == 5).mean() * 100)
+        theme_ctr = Counter(t for tl in sdf['themes_list'] for t in tl)
+        top_themes = ', '.join(f"{t}({c})" for t, c in theme_ctr.most_common(4)) or 'none tagged'
+        lines.append(f"  {scent}: {int(row['count'])} reviews | avg {row['avg']:.1f}★ | {pct5}% 5-star | top tags: {top_themes}")
+
+    # Theme frequency across all reviews
+    theme_ctr = Counter(t for tl in df['themes_list'] for t in tl)
+    if theme_ctr:
+        lines.append("")
+        lines.append(f"Tag frequency (all {n:,} reviews):")
+        for tag, cnt in theme_ctr.most_common():
+            lines.append(f"  {tag}: {cnt:,} ({cnt/n*100:.1f}%)")
+
+    # Top standout phrases
+    phrase_ctr = Counter(p for pl in df['standout_phrases_list'] for p in pl if p)
+    if phrase_ctr:
+        lines.append("")
+        lines.append("Most-cited customer phrases:")
+        for phrase, cnt in phrase_ctr.most_common(12):
+            lines.append(f"  \"{phrase}\" — {cnt} reviews")
+
+    # Competitor mentions
+    comp_ctr = Counter(c for cl in df['competitor_mentions_list'] for c in cl if c)
+    if comp_ctr:
+        lines.append("")
+        lines.append("Competitor mentions: " + ', '.join(f"{c}({n})" for c, n in comp_ctr.most_common()))
+
+    # Use cases
+    use_ctr = Counter(u for ul in df['use_cases_list'] for u in ul if u)
+    if use_ctr:
+        lines.append("")
+        lines.append("Use cases: " + ', '.join(f"{u}({n})" for u, n in use_ctr.most_common(8)))
+
+    return '\n'.join(lines)
+
+
 try:
     df_all = load_data()
 except FileNotFoundError:
@@ -1272,6 +1328,7 @@ with tab_chat:
 
         avg_str = f"{df['rating'].mean():.2f}" if n else 'N/A'
 
+        aggregate_context = build_aggregate_context(df_all)
         wa_week, wa_count, wa = load_weekly_analysis()
         weekly_intel = ""
         if wa:
@@ -1342,13 +1399,15 @@ Competitors: Frey (clean/functional positioning), Dirty Labs (performance/scienc
 
 Operational context: Products come from two vendors — 6 Degrees (March Order batch, started arriving April 2026) and Product Society (January Order batch). The March Order - 6 Degrees batch has generated a pattern of scent-longevity complaints across multiple SKUs, most concentrated in CZ and HR. This is a known quality signal worth flagging when relevant.
 
-── DATA CONTEXT ──
-Total database: {len(df_all):,} reviews (all time) · Filtered view: {n:,} reviews · Avg rating: {avg_str}
-Scent breakdown (mean rating, count):
+── ALL-TIME DATA ──
+{aggregate_context}
+
+── CURRENT FILTERED VIEW ({n:,} reviews · avg {avg_str}★) ──
+Scent breakdown (filtered):
 {scent_summary}
 {weekly_intel}
-── MATCHED REVIEWS ──
-IMPORTANT: The {len(relevant)} reviews below are the complete matched set for this query. Pull examples directly from this list. Do not say you need more data.
+── SAMPLE REVIEWS FOR THIS QUERY ({len(relevant)} keyword-matched) ──
+Use the aggregate stats above for counts and trends. Use these reviews for direct quotes and specific examples.
 
 {sample_text}
 
