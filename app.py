@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import json
+import re
 from anthropic import Anthropic
 from datetime import datetime, timedelta
 
@@ -1290,6 +1291,77 @@ with tab_chat:
 
         with_body = df_all[df_all['body'].notna()].copy()
 
+        # ── Date pre-filter ───────────────────────────────────────────────────
+        prompt_lower = prompt.lower()
+        today = datetime.now()
+        date_filter_desc = ''
+
+        quarter_m = re.search(r'\bq([1-4])\s*(202\d)\b', prompt_lower)
+        year_m    = re.search(r'\b(202\d)\b', prompt_lower)
+
+        if quarter_m:
+            q, yr = int(quarter_m.group(1)), int(quarter_m.group(2))
+            sm = (q - 1) * 3 + 1
+            em = sm + 2
+            d_from = f"{yr}-{sm:02d}-01"
+            d_to   = f"{yr}-{em:02d}-30"
+            with_body = with_body[
+                (with_body['date_created'].fillna('') >= d_from) &
+                (with_body['date_created'].fillna('') <= d_to + 'Z')
+            ]
+            date_filter_desc = f"Q{q} {yr}"
+        elif 'last year' in prompt_lower:
+            yr = today.year - 1
+            with_body = with_body[
+                (with_body['date_created'].fillna('') >= f"{yr}-01-01") &
+                (with_body['date_created'].fillna('') <= f"{yr}-12-31Z")
+            ]
+            date_filter_desc = str(yr)
+        elif 'this year' in prompt_lower:
+            with_body = with_body[with_body['date_created'].fillna('') >= f"{today.year}-01-01"]
+            date_filter_desc = str(today.year)
+        elif 'last month' in prompt_lower or 'past month' in prompt_lower:
+            cutoff = (today - timedelta(days=30)).strftime('%Y-%m-%d')
+            with_body = with_body[with_body['date_created'].fillna('') >= cutoff]
+            date_filter_desc = 'last 30 days'
+        elif 'last week' in prompt_lower or 'past week' in prompt_lower:
+            cutoff = (today - timedelta(days=7)).strftime('%Y-%m-%d')
+            with_body = with_body[with_body['date_created'].fillna('') >= cutoff]
+            date_filter_desc = 'last 7 days'
+        elif year_m:
+            yr = int(year_m.group(1))
+            with_body = with_body[
+                (with_body['date_created'].fillna('') >= f"{yr}-01-01") &
+                (with_body['date_created'].fillna('') <= f"{yr}-12-31Z")
+            ]
+            date_filter_desc = str(yr)
+
+        # ── Scent pre-filter ──────────────────────────────────────────────────
+        SCENT_ALIASES = {
+            'AW': ['alpine woods', 'alpine'],
+            'CC': ['central coast'],
+            'CZ': ['signature cozy', 'cozy cashmere', 'cozy'],
+            'DP': ['desert poppy'],
+            'FC': ['free and clear', 'free & clear', 'free+clear', 'fragrance free', 'fragrance-free'],
+            'GH': ['golden hour'],
+            'HR': ['hollywood rouge', 'hollywood'],
+            'MM': ['malibu mornings', 'malibu'],
+            'SD': ['sugar dew', 'sugar dew'],
+            'VM': ['vanilla moon', 'vanilla'],
+        }
+        matched_skus = [
+            sku for sku, aliases in SCENT_ALIASES.items()
+            if any(a in prompt_lower for a in aliases)
+            or re.search(rf'\b{sku.lower()}\b', prompt_lower)
+        ]
+        scent_filter_desc = ''
+        if matched_skus and 'sku' in with_body.columns:
+            with_body = with_body[with_body['sku'].isin(matched_skus)]
+            scent_filter_desc = ', '.join(matched_skus)
+
+        # ── Keyword matching — no hard cap, 1500 safety ceiling ───────────────
+        MAX_REVIEWS = 1500
+
         SYNONYMS = {
             'skin': ['skin', 'sensitiv', 'irritat', 'allerg', 'rash', 'eczema', 'reaction'],
             'hormone': ['hormone', 'endocrin', 'disrupt', 'chemical', 'toxic', 'clean formula', 'natural'],
@@ -1310,19 +1382,21 @@ with tab_chat:
                 with_body['body'].str.contains(pattern, case=False, na=False) |
                 with_body['title'].fillna('').str.contains(pattern, case=False, na=False)
             )
-            relevant = (
-                with_body[mask]
-                .sort_values('rating', ascending=False)
-                .head(150)
-            )
+            relevant = with_body[mask].sort_values('date_created', ascending=False)
             if len(relevant) < 15:
                 recent = with_body[~with_body.index.isin(relevant.index)].sort_values('date_created', ascending=False).head(20)
                 relevant = pd.concat([relevant, recent])
         else:
-            relevant = with_body.sort_values('date_created', ascending=False).head(60)
+            relevant = with_body.sort_values('date_created', ascending=False)
+
+        if len(relevant) > MAX_REVIEWS:
+            relevant = relevant.head(MAX_REVIEWS)
+
+        filter_parts = [p for p in [scent_filter_desc, date_filter_desc] if p]
+        filter_label = f" — filtered to: {', '.join(filter_parts)}" if filter_parts else ''
 
         sample_text = '\n'.join(
-            f"[{r['scent']} | {r['rating']}★ | {str(r['date_created'])[:10]}] {r['title']}: {str(r['body'])[:200]}"
+            f"[{r['scent']} | {r['rating']}★ | {str(r['date_created'])[:10]}] {r['title']}: {str(r['body'])[:400]}"
             for _, r in relevant.iterrows()
         )
 
@@ -1406,7 +1480,7 @@ Operational context: Products come from two vendors — 6 Degrees (March Order b
 Scent breakdown (filtered):
 {scent_summary}
 {weekly_intel}
-── SAMPLE REVIEWS FOR THIS QUERY ({len(relevant)} keyword-matched) ──
+── SAMPLE REVIEWS FOR THIS QUERY ({len(relevant)} reviews{filter_label}) ──
 Use the aggregate stats above for counts and trends. Use these reviews for direct quotes and specific examples.
 
 {sample_text}
@@ -1420,7 +1494,7 @@ Be direct and strategic. Lead with the insight, not the methodology."""
                 try:
                     resp = client.messages.create(
                         model='claude-sonnet-4-6',
-                        max_tokens=1024,
+                        max_tokens=2048,
                         system=system,
                         messages=[
                             {'role': m['role'], 'content': m['content']}
