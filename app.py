@@ -13,12 +13,13 @@ SCENT_NAMES = {
     'AW': 'Alpine Woods', 'CC': 'Central Coast', 'CZ': 'Signature Cozy',
     'DP': 'Desert Poppy', 'FC': 'Free & Clear', 'GH': 'Golden Hour',
     'HR': 'Hollywood Rouge', 'MM': 'Malibu Mornings', 'SD': 'Sugar Dew', 'VM': 'Vanilla Moon',
+    '9PACK SK': '9-Pack Sample Kit',
 }
 
 SCENT_COLORS = {
     'AW': '#4F7942', 'CC': '#4F86C6', 'CZ': '#C8A96E', 'DP': '#E8734A',
     'FC': '#88BBAA', 'GH': '#F2C94C', 'HR': '#9B2335', 'MM': '#6BAED6',
-    'SD': '#F4A460', 'VM': '#9B59B6',
+    'SD': '#F4A460', 'VM': '#9B59B6', '9PACK SK': '#A0785A',
 }
 SCENT_COLOR_MAP = {SCENT_NAMES[k]: v for k, v in SCENT_COLORS.items()}
 
