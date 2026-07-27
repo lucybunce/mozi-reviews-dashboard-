@@ -1,11 +1,14 @@
 """Mozi Wash Review Intelligence — Streamlit dashboard."""
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import json
 import re
 from anthropic import Anthropic
 from datetime import datetime, timedelta
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 st.set_page_config(page_title="Mozi Wash Review Intelligence", layout="wide")
 
@@ -126,6 +129,51 @@ def build_aggregate_context(df):
         lines.append("Use cases: " + ', '.join(f"{u}({n})" for u, n in use_ctr.most_common(8)))
 
     return '\n'.join(lines)
+
+
+@st.cache_resource(show_spinner=False)
+def build_search_index(review_count, max_date):
+    """TF-IDF index over every review with body text, so Ask Claude retrieval
+    ranks across the FULL dataset instead of a random/recent sample.
+    Cache key is (review_count, max_date) so it rebuilds when reviews.csv changes."""
+    corpus_df = df_all[df_all['body'].notna()].copy()
+    corpus_df['search_text'] = (
+        corpus_df['title'].fillna('') + ' ' + corpus_df['body'].fillna('')
+    )
+    # max_df=0.4 drops terms in >40% of reviews (e.g. "mozi", "wash", "detergent",
+    # "clean") that would otherwise inflate similarity for almost any query just
+    # because they're brand/domain-generic, not because the query is actually on-topic.
+    vectorizer = TfidfVectorizer(stop_words='english', ngram_range=(1, 2), min_df=2, max_df=0.4, sublinear_tf=True)
+    matrix = vectorizer.fit_transform(corpus_df['search_text'])
+    return vectorizer, matrix, corpus_df.index.to_numpy()
+
+
+def semantic_search(query_text, candidate_df, vectorizer, matrix, indexed_ids, top_k=250, min_similarity=0.1):
+    """Rank candidate_df's reviews by TF-IDF cosine similarity to query_text.
+    Returns (ranked_df, total_above_threshold) — total_above_threshold is the TRUE
+    count of relevant reviews found (even if more than top_k, which just bounds
+    how many get sent to Claude to control context size)."""
+    id_to_pos = {rid: pos for pos, rid in enumerate(indexed_ids)}
+    candidate_positions = [id_to_pos[i] for i in candidate_df.index if i in id_to_pos]
+    if not candidate_positions:
+        return candidate_df.iloc[0:0], 0
+
+    query_vec = vectorizer.transform([query_text])
+    sims = cosine_similarity(query_vec, matrix[candidate_positions]).flatten()
+
+    order = np.argsort(-sims)
+    above_threshold = [(candidate_positions[o], sims[o]) for o in order if sims[o] >= min_similarity]
+    total_above_threshold = len(above_threshold)
+
+    top = above_threshold[:top_k]
+    if not top:
+        return candidate_df.iloc[0:0], 0
+
+    pos_to_id = {pos: rid for rid, pos in id_to_pos.items()}
+    ranked_ids = [pos_to_id[pos] for pos, _ in top]
+    ranked_df = candidate_df.loc[ranked_ids].copy()
+    ranked_df['_similarity'] = [s for _, s in top]
+    return ranked_df, total_above_threshold
 
 
 try:
@@ -1286,8 +1334,14 @@ with tab_chat:
 
         stop_words = {'the','a','an','is','are','was','were','what','which','who','how',
                       'can','you','me','i','we','our','about','from','with','for','of',
-                      'and','or','in','on','to','do','it','this','that','be','at','by'}
-        keywords = [w.lower() for w in prompt.replace('?','').replace(',','').split()
+                      'and','or','in','on','to','do','it','this','that','be','at','by',
+                      'their','they','them','any','some',
+                      # Generic dashboard-question filler — near-universal across every
+                      # review/question regardless of actual topic, so they'd otherwise
+                      # inflate TF-IDF similarity for almost any query.
+                      'customers','customer','say','saying','said','reviews','review',
+                      'focus','mention','mentioned','think','thinks','feel','feels','people'}
+        keywords = [w.lower().strip('.,!') for w in prompt.replace('?','').replace(',','').split()
                     if len(w) > 2 and w.lower() not in stop_words]
 
         with_body = df_all[df_all['body'].notna()].copy()
@@ -1360,9 +1414,11 @@ with tab_chat:
             with_body = with_body[with_body['sku'].isin(matched_skus)]
             scent_filter_desc = ', '.join(matched_skus)
 
-        # ── Keyword matching — no hard cap, 1500 safety ceiling ───────────────
-        MAX_REVIEWS = 1500
-
+        # ── Semantic search (TF-IDF cosine similarity) over the FULL dataset ──
+        # Ranks every review in with_body (already scent/date pre-filtered) by
+        # relevance to the query, instead of a substring-regex match capped/padded
+        # with unrelated "recent" reviews. total_relevant is the TRUE count found —
+        # used below so Claude can be honest when there isn't much real data.
         SYNONYMS = {
             'skin': ['skin', 'sensitiv', 'irritat', 'allerg', 'rash', 'eczema', 'reaction'],
             'hormone': ['hormone', 'endocrin', 'disrupt', 'chemical', 'toxic', 'clean formula', 'natural'],
@@ -1377,29 +1433,27 @@ with tab_chat:
                     expanded.extend(syns)
         expanded = list(set(expanded))
 
-        if expanded:
-            pattern = '|'.join(expanded)
-            mask = (
-                with_body['body'].str.contains(pattern, case=False, na=False) |
-                with_body['title'].fillna('').str.contains(pattern, case=False, na=False)
-            )
-            relevant = with_body[mask].sort_values('date_created', ascending=False)
-            if len(relevant) < 15:
-                recent = with_body[~with_body.index.isin(relevant.index)].sort_values('date_created', ascending=False).head(20)
-                relevant = pd.concat([relevant, recent])
-        else:
-            relevant = with_body.sort_values('date_created', ascending=False)
-
-        if len(relevant) > MAX_REVIEWS:
-            relevant = relevant.head(MAX_REVIEWS)
+        search_vectorizer, search_matrix, search_ids = build_search_index(
+            len(df_all), str(df_all['date_created'].max())
+        )
+        # Query on extracted keywords/synonyms only, NOT the raw sentence — filler
+        # words in a natural-language question ("what are customers saying about...")
+        # would otherwise dominate the query vector and pull in irrelevant reviews.
+        query_text = ' '.join(expanded) if expanded else prompt
+        relevant, total_relevant = semantic_search(
+            query_text, with_body, search_vectorizer, search_matrix, search_ids,
+            top_k=250, min_similarity=0.1,
+        )
 
         filter_parts = [p for p in [scent_filter_desc, date_filter_desc] if p]
         filter_label = f" — filtered to: {', '.join(filter_parts)}" if filter_parts else ''
 
         sample_text = '\n'.join(
-            f"[{r['scent']} | {r['rating']}★ | {str(r['date_created'])[:10]}] {r['title']}: {str(r['body'])[:400]}"
+            f"[id:{r['review_id']} | {r['scent']} | {r['rating']}★ | {str(r['date_created'])[:10]}] {r['title']}: {str(r['body'])}"
             for _, r in relevant.iterrows()
         )
+        if total_relevant == 0:
+            sample_text = "(no reviews matched this query above the relevance threshold)"
 
         avg_str = f"{df['rating'].mean():.2f}" if n else 'N/A'
 
@@ -1481,12 +1535,21 @@ Operational context: Products come from two vendors — 6 Degrees (March Order b
 Scent breakdown (filtered):
 {scent_summary}
 {weekly_intel}
-── SAMPLE REVIEWS FOR THIS QUERY ({len(relevant)} reviews{filter_label}) ──
-Use the aggregate stats above for counts and trends. Use these reviews for direct quotes and specific examples.
+── RETRIEVED REVIEWS FOR THIS QUERY ──
+{total_relevant:,} of {len(df_all):,} total reviews in the database were found relevant to this query (semantic search, similarity ≥ 0.1){filter_label}.
+{f"Showing all {len(relevant)} of them below." if total_relevant <= len(relevant) else f"Showing the {len(relevant)} most relevant below (there were {total_relevant:,} total — use the aggregate stats above for the full picture, not just these)."}
+Each line is tagged with its review_id.
 
 {sample_text}
 
-Be direct and strategic. Lead with the insight, not the methodology."""
+── QUOTING RULES (strict — do not deviate) ──
+1. NEVER fabricate, paraphrase-as-a-quote, or reconstruct a customer quote. A "quote" is only ever text copied verbatim, character-for-character, from a review in the RETRIEVED REVIEWS block above.
+2. Every direct quote you give MUST be immediately followed by its source in this exact format: (review_id: <id>). If you cannot find a real review_id for a quote, do not present it as a quote — describe the finding in your own words instead, with no quotation marks.
+3. If you want to paraphrase or summarize what customers said, do NOT use quotation marks — quotation marks are reserved exclusively for verbatim text.
+4. Honest fallback: if {total_relevant:,} is small (roughly under 10) or zero for what's being asked, say so plainly — e.g. "Only {total_relevant} review(s) mention this — not enough to draw a conclusion" — instead of padding the answer with invented specifics or overgeneralizing from the aggregate stats. It's better to say there isn't enough data than to sound confident without it.
+5. The ALL-TIME AGGREGATE and WEEKLY INTELLIGENCE sections above are pre-computed real stats — safe to cite numbers from directly. The RETRIEVED REVIEWS block is the ONLY source for direct customer quotes.
+
+Be direct and strategic. Lead with the insight, not the methodology. Follow the quoting rules above without exception, even if it makes the answer less punchy."""
 
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
