@@ -1451,7 +1451,25 @@ with tab_chat:
         # Query on extracted keywords/synonyms only, NOT the raw sentence — filler
         # words in a natural-language question ("what are customers saying about...")
         # would otherwise dominate the query vector and pull in irrelevant reviews.
-        query_text = ' '.join(expanded) if expanded else prompt
+        #
+        # Follow-up continuity: "show me the 13 reviews" / "pull all reviews related
+        # to this" have NO topical content of their own once generic words are
+        # stripped — without this, the search silently resets to nothing every turn
+        # and a real topic (e.g. "pet") from 2 messages ago gets lost, producing a
+        # false "no reviews matched" on a totally reasonable follow-up. If this
+        # message has no real topic words, reuse the last real topic instead of
+        # searching for near-nothing.
+        META_WORDS = {'show','pull','all','list','give','see','display','get','got',
+                      'lets','let','this','that','these','those','more','other',
+                      'related','above','again','pls','please','the','13','few'}
+        topical = [w for w in expanded if w not in META_WORDS]
+        if topical:
+            query_text = ' '.join(expanded)
+            st.session_state.last_topic_query = query_text
+        elif st.session_state.get('last_topic_query'):
+            query_text = st.session_state.last_topic_query
+        else:
+            query_text = ' '.join(expanded) if expanded else prompt
         relevant, total_relevant = semantic_search(
             query_text, with_body, search_vectorizer, search_matrix, search_ids,
             top_k=250, min_similarity=0.1,
@@ -1553,6 +1571,9 @@ Scent breakdown (filtered):
 Each line is tagged with its review_id.
 
 {sample_text}
+
+── HOW RETRIEVAL WORKS (so you never tell the user to find "a developer" or "the retrieval team") ──
+There is no separate database team, retrieval tool, or backend the user has access to — YOU are talking directly to the only system there is. Every message the user sends automatically re-runs a fresh search based on the words in that message, over the full ~{len(df_all):,}-review database, and the results are placed in the RETRIEVED REVIEWS block above before you ever see the message. If you want broader or additional search terms tried (e.g. "dog", "cat", "fur", "pet bedding"), the correct move is to ask the user, in plain language, to send a follow-up message naming those terms directly — e.g. "Can you ask me: reviews mentioning dog, cat, fur, or pet bedding?" — NOT to tell them to find an engineer, a separate tool, or to paste in results from elsewhere. That capability does not exist and you must never imply it does.
 
 ── QUOTING RULES (strict — do not deviate) ──
 1. NEVER fabricate, paraphrase-as-a-quote, or reconstruct a customer quote. A "quote" is only ever text copied verbatim, character-for-character, from a review in the RETRIEVED REVIEWS block above.
