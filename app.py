@@ -1452,28 +1452,35 @@ with tab_chat:
         # words in a natural-language question ("what are customers saying about...")
         # would otherwise dominate the query vector and pull in irrelevant reviews.
         #
-        # Follow-up continuity: "show me the 13 reviews" / "pull all reviews related
-        # to this" have NO topical content of their own once generic words are
-        # stripped — without this, the search silently resets to nothing every turn
-        # and a real topic (e.g. "pet") from 2 messages ago gets lost, producing a
-        # false "no reviews matched" on a totally reasonable follow-up. If this
-        # message has no real topic words, reuse the last real topic instead of
-        # searching for near-nothing.
-        META_WORDS = {'show','pull','all','list','give','see','display','get','got',
-                      'lets','let','this','that','these','those','more','other',
-                      'related','above','again','pls','please','the','13','few'}
-        topical = [w for w in expanded if w not in META_WORDS]
-        if topical:
-            query_text = ' '.join(expanded)
-            st.session_state.last_topic_query = query_text
-        elif st.session_state.get('last_topic_query'):
-            query_text = st.session_state.last_topic_query
+        # Follow-up continuity: a message like "show me the exact wording of the
+        # reviews" or "give me the 13 reviews" isn't a new topic — it's a reference
+        # to whatever was just retrieved. Trying to detect this by blocklisting
+        # "generic" words doesn't generalize (e.g. "exact wording" reads as its own
+        # topic to a naive extractor, and re-searching on it finds nothing about the
+        # real subject). Instead: detect an explicit backward-reference to the prior
+        # result, and if found, REUSE the exact same retrieved reviews rather than
+        # re-running search and hoping it returns the same set — this guarantees the
+        # verbatim text available is the real text of the reviews just discussed,
+        # not a coincidentally-similar new batch.
+        REFERENCE_PATTERNS = [
+            r'\bthe reviews?\b', r'\bthose reviews?\b', r'\bthese reviews?\b',
+            r'\bexact word', r'\bverbatim\b', r'\bword.for.word\b', r'\bquote them\b',
+            r'\bshow (them|me them|those|these|it)\b', r'\bthe ones\b',
+            r'\byou (mentioned|cited|quoted|listed|showed)\b', r'\bfrom before\b',
+            r'\babove\b.*\breviews?\b', r'\bthe \d+ reviews?\b',
+        ]
+        is_reference = any(re.search(p, prompt_lower) for p in REFERENCE_PATTERNS)
+        cached = st.session_state.get('last_relevant')
+        if is_reference and cached is not None:
+            relevant, total_relevant = cached, st.session_state.get('last_total_relevant', len(cached))
         else:
             query_text = ' '.join(expanded) if expanded else prompt
-        relevant, total_relevant = semantic_search(
-            query_text, with_body, search_vectorizer, search_matrix, search_ids,
-            top_k=250, min_similarity=0.1,
-        )
+            relevant, total_relevant = semantic_search(
+                query_text, with_body, search_vectorizer, search_matrix, search_ids,
+                top_k=250, min_similarity=0.1,
+            )
+            st.session_state.last_relevant = relevant
+            st.session_state.last_total_relevant = total_relevant
 
         filter_parts = [p for p in [scent_filter_desc, date_filter_desc] if p]
         filter_label = f" — filtered to: {', '.join(filter_parts)}" if filter_parts else ''
