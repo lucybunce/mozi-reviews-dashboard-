@@ -7,7 +7,7 @@ import json
 import re
 from anthropic import Anthropic
 from datetime import datetime, timedelta
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer, ENGLISH_STOP_WORDS
 from sklearn.metrics.pairwise import cosine_similarity
 
 st.set_page_config(page_title="Mozi Wash Review Intelligence", layout="wide")
@@ -1344,17 +1344,22 @@ with tab_chat:
             .to_string()
         ) if n else "No data"
 
-        stop_words = {'the','a','an','is','are','was','were','what','which','who','how',
-                      'can','you','me','i','we','our','about','from','with','for','of',
-                      'and','or','in','on','to','do','it','this','that','be','at','by',
-                      'their','they','them','any','some',
-                      # Generic dashboard-question filler — near-universal across every
-                      # review/question regardless of actual topic, so they'd otherwise
-                      # inflate TF-IDF similarity for almost any query.
-                      'customers','customer','say','saying','said','reviews','review',
-                      'focus','mention','mentioned','think','thinks','feel','feels','people'}
-        keywords = [w.lower().strip('.,!') for w in prompt.replace('?','').replace(',','').split()
-                    if len(w) > 2 and w.lower() not in stop_words]
+        # Base stopword list is sklearn's own (comprehensive, well-tested ~318-word
+        # list) rather than a small hand-picked set — a hand list keeps missing real
+        # stopwords (e.g. "too") that a proper list already covers. Layered on top:
+        # generic dashboard-question filler that's near-universal across every
+        # review/question regardless of actual topic (not standard NLP stopwords,
+        # but functionally the same problem in this app's specific context).
+        stop_words = set(ENGLISH_STOP_WORDS) | {
+            'customers','customer','say','saying','said','reviews','review',
+            'focus','mention','mentioned','mentioning','think','thinks','feel','feels','people'}
+        # Strip punctuation (including quotes, since users sometimes type "dog",
+        # "cat" with quote marks around terms) BEFORE checking against stop_words —
+        # doing it after, as this used to, meant a stopword immediately followed by
+        # punctuation (e.g. "reviews." at the end of a sentence) didn't textually
+        # match the bare stopword and slipped through the filter as a "keyword".
+        _cleaned_tokens = [w.lower().strip('.,!?"\'') for w in prompt.replace(',', '').split()]
+        keywords = [w for w in _cleaned_tokens if len(w) > 2 and w not in stop_words]
 
         with_body = df_all[df_all['body'].notna()].copy()
 
@@ -1452,16 +1457,25 @@ with tab_chat:
         # words in a natural-language question ("what are customers saying about...")
         # would otherwise dominate the query vector and pull in irrelevant reviews.
         #
-        # Follow-up continuity: a message like "show me the exact wording of the
-        # reviews" or "give me the 13 reviews" isn't a new topic — it's a reference
-        # to whatever was just retrieved. Trying to detect this by blocklisting
-        # "generic" words doesn't generalize (e.g. "exact wording" reads as its own
-        # topic to a naive extractor, and re-searching on it finds nothing about the
-        # real subject). Instead: detect an explicit backward-reference to the prior
-        # result, and if found, REUSE the exact same retrieved reviews rather than
-        # re-running search and hoping it returns the same set — this guarantees the
-        # verbatim text available is the real text of the reviews just discussed,
-        # not a coincidentally-similar new batch.
+        # Follow-up continuity: a message like "show me the 13 reviews" isn't a new
+        # topic — it's a reference to whatever was just retrieved. Only treat it that
+        # way when BOTH signals agree: (a) it reads as a backward-reference ("the
+        # reviews", "exact wording", "verbatim") AND (b) it has no real topic words of
+        # its own once a narrow formatting/reference blocklist is removed. Requiring
+        # both avoids the failure mode where a message that names real new search
+        # terms ALSO happens to ask for "exact wording" and gets wrongly treated as a
+        # pure reference, silently discarding the new terms and replaying stale results.
+        REFERENCE_WORDS = {'show','pull','all','list','give','see','display','get','got',
+                      'lets','let','this','that','these','those','more','other',
+                      'related','above','again','pls','please','the','few',
+                      'exact','wording','verbatim','word','words','quote','quoted',
+                      'quoting','text','literally','literal','summary','summaries',
+                      'want','just',
+                      # Conversational reaction/filler words — "this is great, can
+                      # you give me..." shouldn't read as a new topic ("great").
+                      'great','good','nice','cool','awesome','perfect','love','loved',
+                      'thanks','thank','appreciate','helpful','okay','sure','right',
+                      'yes','yeah','no','well','amazing','wonderful','excellent'}
         REFERENCE_PATTERNS = [
             r'\bthe reviews?\b', r'\bthose reviews?\b', r'\bthese reviews?\b',
             r'\bexact word', r'\bverbatim\b', r'\bword.for.word\b', r'\bquote them\b',
@@ -1469,16 +1483,40 @@ with tab_chat:
             r'\byou (mentioned|cited|quoted|listed|showed)\b', r'\bfrom before\b',
             r'\babove\b.*\breviews?\b', r'\bthe \d+ reviews?\b',
         ]
+        topical = [w for w in keywords if w not in REFERENCE_WORDS]
         is_reference = any(re.search(p, prompt_lower) for p in REFERENCE_PATTERNS)
         cached = st.session_state.get('last_relevant')
-        if is_reference and cached is not None:
+        if not topical and is_reference and cached is not None:
             relevant, total_relevant = cached, st.session_state.get('last_total_relevant', len(cached))
         else:
             query_text = ' '.join(expanded) if expanded else prompt
-            relevant, total_relevant = semantic_search(
+            fuzzy_relevant, _ = semantic_search(
                 query_text, with_body, search_vectorizer, search_matrix, search_ids,
                 top_k=250, min_similarity=0.1,
             )
+
+            # Exact-match recall backstop: TF-IDF drops any term that appears in
+            # fewer than 2 reviews from its vocabulary entirely, and a single passing
+            # mention in an otherwise long review can score below the similarity
+            # cutoff — both silently exclude a review that genuinely contains the
+            # word the user asked for. Guarantee every literal hit on a real topic
+            # word is included, regardless of what TF-IDF scored it.
+            exact_terms = [w for w in topical if len(w) > 2]
+            if exact_terms:
+                corpus_text = with_body['title'].fillna('') + ' ' + with_body['body'].fillna('')
+                exact_pattern = '|'.join(rf'\b{re.escape(t)}s?\b' for t in exact_terms)
+                exact_mask = corpus_text.str.contains(exact_pattern, case=False, regex=True, na=False)
+                exact_ids = set(with_body.loc[exact_mask, 'review_id'].astype(str))
+            else:
+                exact_ids = set()
+
+            fuzzy_ids = set(fuzzy_relevant['review_id'].astype(str)) if len(fuzzy_relevant) else set()
+            all_ids = exact_ids | fuzzy_ids
+            total_relevant = len(all_ids)
+            exact_rows = with_body[with_body['review_id'].astype(str).isin(exact_ids)]
+            extra_rows = fuzzy_relevant[~fuzzy_relevant['review_id'].astype(str).isin(exact_ids)] if len(fuzzy_relevant) else fuzzy_relevant
+            relevant = pd.concat([exact_rows, extra_rows]).head(250)
+
             st.session_state.last_relevant = relevant
             st.session_state.last_total_relevant = total_relevant
 
