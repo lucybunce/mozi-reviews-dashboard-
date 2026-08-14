@@ -188,6 +188,56 @@ def find_fabricated_citations(text, valid_ids):
     return [c for c in cited if c not in valid_set]
 
 
+def classify_query(prompt, last_topic_terms, client):
+    """Decide whether this message is a new search topic or a follow-up referring
+    to reviews already shown, and if new, what to actually search for — using real
+    understanding of intent instead of a hand-maintained word-list/regex heuristic.
+    That approach kept missing real phrasings ("the exact wording", "great", "the
+    exact reviews", ...) one at a time, because there's no way to enumerate every
+    way a person might phrase a follow-up or react to an answer. A fast, cheap
+    model call generalizes where a blocklist can't. Falls back to (False, None) —
+    treat as a new topic, let the caller use its own keyword extraction — if the
+    call fails or returns something unparseable, so a hiccup here never breaks
+    the chat."""
+    system = (
+        "You are a query router for a customer-review search tool. Given the "
+        "CURRENT message and the PREVIOUS SEARCH TOPIC (if any), decide:\n"
+        "1. is_continuation: true if the current message is a follow-up referring "
+        "to reviews already shown (asking for exact wording, more detail, "
+        "formatting, a recap, or just reacting/thanking) rather than introducing a "
+        "new subject to search for. false if it introduces any new topic, even "
+        "alongside an incidental request like 'exact wording'.\n"
+        "2. search_terms: if not a continuation, a list of terms to search for "
+        "(not filler words, not the literal phrase 'reviews'). Include BOTH short, "
+        "single/two-word atomic terms (e.g. 'santal', 'le labo', 'winter') AND "
+        "longer specific phrases when relevant (e.g. 'le labo santal 33') — each "
+        "entry is matched as its own literal phrase, so a term only found inside a "
+        "longer phrase won't be caught unless it also appears on its own; prefer "
+        "more shorter entries over fewer long ones. Include closely related "
+        "synonyms/variants a customer might actually use, including plausible "
+        "misspellings or alternate word forms (e.g. 'santalum' for 'santal'). If "
+        "the topic is already scoped by an obvious product/scent name in the "
+        "message, don't also add that same name as a search term — it would match "
+        "nearly everything in that scope and drown out the more specific terms.\n\n"
+        "Respond with ONLY valid JSON, no other text, in this exact shape: "
+        '{"is_continuation": true|false, "search_terms": ["...", ...]}'
+    )
+    user_msg = f"PREVIOUS SEARCH TOPIC: {last_topic_terms or '(none yet)'}\n\nCURRENT MESSAGE: {prompt}"
+    try:
+        resp = client.messages.create(
+            model='claude-haiku-4-5-20251001', max_tokens=300,
+            system=system, messages=[{'role': 'user', 'content': user_msg}],
+        )
+        raw = resp.content[0].text.strip()
+        raw = re.sub(r'^```(json)?|```$', '', raw, flags=re.MULTILINE).strip()
+        data = json.loads(raw)
+        is_cont = bool(data.get('is_continuation'))
+        terms = [str(t).strip() for t in data.get('search_terms', []) if str(t).strip()]
+        return is_cont, terms
+    except Exception:
+        return False, None
+
+
 try:
     df_all = load_data()
 except FileNotFoundError:
@@ -1336,6 +1386,8 @@ with tab_chat:
         with st.chat_message('user'):
             st.write(prompt)
 
+        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+
         n = len(df)
         scent_summary = (
             df.groupby('scent')['rating']
@@ -1450,46 +1502,33 @@ with tab_chat:
                     expanded.extend(syns)
         expanded = list(set(expanded))
 
+        # Follow-up continuity: a message like "show me the 13 reviews" or "this is
+        # great, give me the exact wording" isn't a new topic — it's a reference to
+        # whatever was just retrieved. A hand-maintained word-list/regex heuristic
+        # here kept missing real phrasings one at a time (fixed "show me the 13",
+        # then "exact wording" broke it, then "great" broke it, then "the exact
+        # reviews" broke it — no blocklist can enumerate every way to phrase this).
+        # classify_query() asks a fast model to actually understand the intent
+        # instead, and also returns the real search terms to use — which generalizes
+        # better than local keyword extraction too (it can include synonyms a
+        # customer might use, not just the literal words typed).
+        last_topic_terms = st.session_state.get('last_topic_terms')
+        is_continuation, ai_terms = classify_query(prompt, last_topic_terms, client)
+        cached = st.session_state.get('last_relevant')
+
         search_vectorizer, search_matrix, search_ids = build_search_index(
             len(df_all), str(df_all['date_created'].max())
         )
-        # Query on extracted keywords/synonyms only, NOT the raw sentence — filler
-        # words in a natural-language question ("what are customers saying about...")
-        # would otherwise dominate the query vector and pull in irrelevant reviews.
-        #
-        # Follow-up continuity: a message like "show me the 13 reviews" isn't a new
-        # topic — it's a reference to whatever was just retrieved. Only treat it that
-        # way when BOTH signals agree: (a) it reads as a backward-reference ("the
-        # reviews", "exact wording", "verbatim") AND (b) it has no real topic words of
-        # its own once a narrow formatting/reference blocklist is removed. Requiring
-        # both avoids the failure mode where a message that names real new search
-        # terms ALSO happens to ask for "exact wording" and gets wrongly treated as a
-        # pure reference, silently discarding the new terms and replaying stale results.
-        REFERENCE_WORDS = {'show','pull','all','list','give','see','display','get','got',
-                      'lets','let','this','that','these','those','more','other',
-                      'related','above','again','pls','please','the','few',
-                      'exact','wording','verbatim','word','words','quote','quoted',
-                      'quoting','text','literally','literal','summary','summaries',
-                      'want','just',
-                      # Conversational reaction/filler words — "this is great, can
-                      # you give me..." shouldn't read as a new topic ("great").
-                      'great','good','nice','cool','awesome','perfect','love','loved',
-                      'thanks','thank','appreciate','helpful','okay','sure','right',
-                      'yes','yeah','no','well','amazing','wonderful','excellent'}
-        REFERENCE_PATTERNS = [
-            r'\bthe reviews?\b', r'\bthose reviews?\b', r'\bthese reviews?\b',
-            r'\bexact word', r'\bverbatim\b', r'\bword.for.word\b', r'\bquote them\b',
-            r'\bshow (them|me them|those|these|it)\b', r'\bthe ones\b',
-            r'\byou (mentioned|cited|quoted|listed|showed)\b', r'\bfrom before\b',
-            r'\babove\b.*\breviews?\b', r'\bthe \d+ reviews?\b',
-        ]
-        topical = [w for w in keywords if w not in REFERENCE_WORDS]
-        is_reference = any(re.search(p, prompt_lower) for p in REFERENCE_PATTERNS)
-        cached = st.session_state.get('last_relevant')
-        if not topical and is_reference and cached is not None:
+
+        if is_continuation and cached is not None:
             relevant, total_relevant = cached, st.session_state.get('last_total_relevant', len(cached))
         else:
-            query_text = ' '.join(expanded) if expanded else prompt
+            # ai_terms is None only if the classifier call itself failed (network/
+            # parse error) — fall back to local keyword extraction rather than lose
+            # the turn entirely. An empty list (classifier ran, found no real topic)
+            # is different and legitimate — still falls back so the query isn't blank.
+            search_terms = ai_terms if ai_terms else (expanded if expanded else keywords)
+            query_text = ' '.join(search_terms) if search_terms else prompt
             fuzzy_relevant, _ = semantic_search(
                 query_text, with_body, search_vectorizer, search_matrix, search_ids,
                 top_k=250, min_similarity=0.1,
@@ -1501,7 +1540,7 @@ with tab_chat:
             # cutoff — both silently exclude a review that genuinely contains the
             # word the user asked for. Guarantee every literal hit on a real topic
             # word is included, regardless of what TF-IDF scored it.
-            exact_terms = [w for w in topical if len(w) > 2]
+            exact_terms = [w for w in search_terms if len(w) > 2]
             if exact_terms:
                 corpus_text = with_body['title'].fillna('') + ' ' + with_body['body'].fillna('')
                 exact_pattern = '|'.join(rf'\b{re.escape(t)}s?\b' for t in exact_terms)
@@ -1519,6 +1558,7 @@ with tab_chat:
 
             st.session_state.last_relevant = relevant
             st.session_state.last_total_relevant = total_relevant
+            st.session_state.last_topic_terms = ', '.join(search_terms) if search_terms else None
 
         filter_parts = [p for p in [scent_filter_desc, date_filter_desc] if p]
         filter_label = f" — filtered to: {', '.join(filter_parts)}" if filter_parts else ''
@@ -1630,7 +1670,6 @@ There is no separate database team, retrieval tool, or backend the user has acce
 
 Be direct and strategic. Lead with the insight, not the methodology. Follow the quoting rules above without exception, even if it makes the answer less punchy."""
 
-        client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
         valid_review_ids = set(relevant['review_id'].astype(str)) if len(relevant) else set()
 
         with st.chat_message('assistant'):
