@@ -176,6 +176,18 @@ def semantic_search(query_text, candidate_df, vectorizer, matrix, indexed_ids, t
     return ranked_df, total_above_threshold
 
 
+CITATION_RE = re.compile(r'\(review_id:\s*([^)]+)\)')
+
+
+def find_fabricated_citations(text, valid_ids):
+    """Every (review_id: X) Claude cites must exist in the set actually retrieved
+    for this query. The system prompt tells Claude not to fabricate citations, but
+    that's advisory only — this is the code-level check that actually catches it."""
+    valid_set = {str(v).strip() for v in valid_ids}
+    cited = {c.strip() for c in CITATION_RE.findall(text)}
+    return [c for c in cited if c not in valid_set]
+
+
 try:
     df_all = load_data()
 except FileNotFoundError:
@@ -1548,24 +1560,106 @@ Each line is tagged with its review_id.
 3. If you want to paraphrase or summarize what customers said, do NOT use quotation marks — quotation marks are reserved exclusively for verbatim text.
 4. Honest fallback: if {total_relevant:,} is small (roughly under 10) or zero for what's being asked, say so plainly — e.g. "Only {total_relevant} review(s) mention this — not enough to draw a conclusion" — instead of padding the answer with invented specifics or overgeneralizing from the aggregate stats. It's better to say there isn't enough data than to sound confident without it.
 5. The ALL-TIME AGGREGATE and WEEKLY INTELLIGENCE sections above are pre-computed real stats — safe to cite numbers from directly. The RETRIEVED REVIEWS block is the ONLY source for direct customer quotes.
+6. Ask, don't guess: if the retrieved reviews are thin, weak-relevance, or the request itself is ambiguous (e.g. the category could mean more than one thing, or your best search terms clearly missed what they meant), do not stretch a weak answer to sound complete. Ask a clarifying question instead — suggest alternate search terms you'd try, ask what timeframe/scent they mean, or confirm what the category actually refers to — so the user can redirect the search rather than getting a speculative or overreaching answer.
 
 Be direct and strategic. Lead with the insight, not the methodology. Follow the quoting rules above without exception, even if it makes the answer less punchy."""
 
         client = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        valid_review_ids = set(relevant['review_id'].astype(str)) if len(relevant) else set()
 
         with st.chat_message('assistant'):
             with st.spinner():
                 try:
+                    base_messages = [
+                        {'role': m['role'], 'content': m['content']}
+                        for m in st.session_state.messages
+                    ]
                     resp = client.messages.create(
-                        model='claude-sonnet-4-6',
-                        max_tokens=2048,
-                        system=system,
-                        messages=[
-                            {'role': m['role'], 'content': m['content']}
-                            for m in st.session_state.messages
-                        ],
+                        model='claude-sonnet-4-6', max_tokens=2048,
+                        system=system, messages=base_messages,
                     )
                     answer = resp.content[0].text
+
+                    # ── Citation guardrail: verify every (review_id: X) is real ──
+                    # before showing it, instead of trusting the prompt instructions.
+                    hard_fallback_used = False
+                    fabricated = find_fabricated_citations(answer, valid_review_ids)
+                    if fabricated:
+                        correction = (
+                            f"Your answer cited review_id(s) {', '.join(fabricated)} that do NOT "
+                            f"exist in the RETRIEVED REVIEWS block for this query — that's a fabricated "
+                            f"citation and a violation of the quoting rules. Rewrite your complete answer: "
+                            f"for anything that relied on those fake quotes, either use a real verbatim "
+                            f"quote with a real review_id from the retrieved set, or drop the quotation "
+                            f"marks and describe the finding in your own words with no citation. Do not "
+                            f"mention this correction — just give the corrected answer directly."
+                        )
+                        retry_resp = client.messages.create(
+                            model='claude-sonnet-4-6', max_tokens=2048, system=system,
+                            messages=base_messages + [
+                                {'role': 'assistant', 'content': answer},
+                                {'role': 'user', 'content': correction},
+                            ],
+                        )
+                        corrected = retry_resp.content[0].text
+                        still_fabricated = find_fabricated_citations(corrected, valid_review_ids)
+                        if still_fabricated:
+                            # Model couldn't self-correct twice — don't show its freeform text
+                            # at all (any of it could still be unverified). Fall back to a
+                            # fully code-generated message built only from numbers we've already
+                            # verified, so nothing false can reach the screen.
+                            answer = (
+                                f"I couldn't produce a fully verified answer to this — after a "
+                                f"correction attempt it still cited review IDs that don't exist in "
+                                f"the retrieved data, so I'm not showing that response.\n\n"
+                                f"What I *can* verify: **{total_relevant:,}** of {len(df_all):,} "
+                                f"total reviews matched this query at the relevance threshold used"
+                                f"{f' ({len(relevant)} shown as candidates)' if relevant is not None and len(relevant) else ''}.\n\n"
+                                f"Can you clarify what you're looking for — different search terms, "
+                                f"a specific scent or timeframe, or should I just list the raw "
+                                f"retrieved reviews instead of a written summary?"
+                            )
+                            hard_fallback_used = True
+                        else:
+                            answer = corrected
+
+                    # ── Zero-match guardrail: total_relevant==0 is a fact we know in code
+                    # BEFORE calling Claude, so "did it ask instead of guess" is enforceable
+                    # here, not just prompt-advisory. Skip if the citation fallback above
+                    # already produced a compliant "here's the real count + a question"
+                    # message — no need to re-check something already guaranteed-honest.
+                    if total_relevant == 0 and not hard_fallback_used and '?' not in answer:
+                        clarify_correction = (
+                            "Zero reviews matched this query above the relevance threshold — "
+                            "there is no real customer-review evidence to answer from (unless "
+                            "the question is purely about the ALL-TIME AGGREGATE stats, which "
+                            "are still safe to use). Rewrite your response: state plainly that "
+                            "no matching reviews were found, and ask a clarifying question — "
+                            "e.g. suggest 2-3 alternate search terms, or ask what they actually "
+                            "mean — instead of presenting a confident answer built on nothing. "
+                            "Do not mention this correction, just give the corrected answer."
+                        )
+                        retry_resp2 = client.messages.create(
+                            model='claude-sonnet-4-6', max_tokens=1024, system=system,
+                            messages=base_messages + [
+                                {'role': 'assistant', 'content': answer},
+                                {'role': 'user', 'content': clarify_correction},
+                            ],
+                        )
+                        corrected2 = retry_resp2.content[0].text
+                        if '?' in corrected2 and not find_fabricated_citations(corrected2, valid_review_ids):
+                            answer = corrected2
+                        else:
+                            # Model still didn't ask — don't trust its freeform text a second
+                            # time. Deterministic fallback guarantees a question gets asked.
+                            answer = (
+                                f"I didn't find any reviews matching this query — 0 of "
+                                f"{len(df_all):,} total reviews were relevant above the "
+                                f"similarity threshold used.\n\n"
+                                f"Can you clarify what you're looking for? Try different "
+                                f"search terms, a specific scent, or a timeframe, and I'll "
+                                f"search again."
+                            )
                 except Exception as e:
                     if 'rate_limit' in str(e).lower() or 'overloaded' in str(e).lower():
                         answer = "Claude is busy right now — wait 30 seconds and try again."
