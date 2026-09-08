@@ -1,234 +1,234 @@
 {
-  "week_date": "2026-08-31",
-  "new_review_count": 139,
+  "week_date": "2026-09-07",
+  "new_review_count": 134,
   "analysis": {
     "phrases": [
       {
-        "phrase": "constantly asked what perfume I'm wearing",
-        "count": 8,
-        "angle": "Position Mozi as wearable luxury \u2014 laundry that doubles as a compliment magnet",
-        "example": "I'm constantly asked what perfume I'm wearing or what I wash my clothes in because I smell so good."
+        "phrase": "I could totally give up wearing cologne at this point",
+        "count": 3,
+        "angle": "Scent so good it replaces fragrance \u2014 wear your laundry",
+        "example": "I almost don't need to wear any other cologne at all. A bonus that the detergent cleans my clothes well, too."
       },
       {
-        "phrase": "smells like a 5-star hotel",
-        "count": 6,
-        "angle": "Aspirational luxury positioning \u2014 hotel-quality scent at home, every day",
-        "example": "Smells like a 5-star hotel. Lots of compliments and does not rob your cologne smell."
+        "phrase": "The hardest part is choosing a favorite",
+        "count": 18,
+        "angle": "Too many winners \u2014 the delicious problem of owning a sample kit",
+        "example": "The only problem is that there are too many good choices, I love all the scents!"
       },
       {
-        "phrase": "can't go back to Tide",
-        "count": 9,
-        "angle": "Conquest messaging \u2014 once you upgrade, there's no going back",
-        "example": "I honestly don't think I can go back to Tide now!"
-      },
-      {
-        "phrase": "walking around in freshly washed laundry all day",
-        "count": 7,
-        "angle": "Wearable scent angle \u2014 clothes that keep giving all day long",
+        "phrase": "Makes me feel like I'm walking around in freshly washed laundry all day",
+        "count": 4,
+        "angle": "Scent as wearable experience, not just clean clothes",
         "example": "I can still smell that fresh, clean scent. It makes me feel like I'm walking around in freshly washed laundry all day!"
       },
       {
-        "phrase": "kids enjoy folding laundry now",
+        "phrase": "Somehow I look forward to laundry now",
         "count": 5,
-        "angle": "Family lifestyle angle \u2014 scent transforms even the worst chores",
-        "example": "Kids even enjoy folding laundry now because the clothes smell so good."
+        "angle": "Mozi transforms the most dreaded chore into a ritual",
+        "example": "Somehow, I look forward to laundry now. The scents are delightful."
       },
       {
-        "phrase": "skip the fabric softener completely",
-        "count": 7,
-        "angle": "Value offset angle \u2014 premium price justified by eliminating other purchases",
-        "example": "Clothes actually come out smelling fresh and feeling so soft that I can skip the fabric softener completely."
+        "phrase": "My closet and sheets smell wonderful \u2014 not overwhelming, just light and fresh",
+        "count": 9,
+        "angle": "Sophisticated scent that signals taste, not overpowering detergent",
+        "example": "My closet and sheets smell wonderful. Not overwhelming just light, fresh, pleasant."
       },
       {
-        "phrase": "I find myself looking for things to wash",
+        "phrase": "No fabric softener needed",
+        "count": 3,
+        "angle": "One product does it all \u2014 simplify your laundry routine",
+        "example": "The product cleans extremely well, the scents are incredible and long lasting, and there is no fabric softener needed."
+      },
+      {
+        "phrase": "It smells so good even after being in my drawer all week",
         "count": 6,
-        "angle": "Makes laundry day something you actually want to do",
-        "example": "I find myself looking for things to wash so I can try a new smell."
+        "angle": "Scent that outlasts the wash \u2014 still there days later",
+        "example": "The towels still smelled freshly scented even after a few days."
       },
       {
-        "phrase": "smells expensive",
-        "count": 8,
-        "angle": "Luxury perception play \u2014 smells like a $40 candle, costs like a detergent",
-        "example": "It just smells expensive. I love it so much!"
-      },
-      {
-        "phrase": "his wife texted me almost immediately",
+        "phrase": "Goodbye toxic crap and hello Mozi for good",
         "count": 4,
-        "angle": "Word-of-mouth as social proof \u2014 Mozi spreads person to person through scent",
-        "example": "His wife texted me almost immediately and said he loves the smell of whatever you washed his shirt in."
+        "angle": "A clean break from chemical detergents \u2014 emotionally charged brand switch",
+        "example": "Good bye toxic crap and hello to Mozi for good!"
       },
       {
-        "phrase": "one bottle lasts 50+ washes",
-        "count": 6,
-        "angle": "Reframe the price \u2014 concentrated formula makes it a value play",
-        "example": "A little goes a LONG way because it's so concentrated, so one bottle lasts 50+ washes."
+        "phrase": "Even my husband loves it",
+        "count": 5,
+        "angle": "Rare win: the skeptic in the house is converted",
+        "example": "Even my husband loves them, we bought the mini bottle variety pack to try out every scent."
+      },
+      {
+        "phrase": "It only takes half a shot glass",
+        "count": 4,
+        "angle": "Concentrated luxury \u2014 a little goes a long way",
+        "example": "Thought the cans to be a bit small, but it only takes a 1/2 of a shot glass. Clothing feels cleaner, softer and smells amazing."
       }
     ],
     "themes": [
       {
-        "theme": "Long-lasting scent that stays on clothes all day",
-        "count": 47,
-        "description": "Customers repeatedly note that scent lingers from washer to dryer to wearing, often hours or days later."
-      },
-      {
-        "theme": "Impossible to pick just one scent",
+        "theme": "Scent longevity and lasting freshness",
         "count": 38,
-        "description": "The abundance of great scents creates a delightful decision paralysis that drives repeat purchases and bundle interest."
+        "description": "Customers repeatedly note that the scent stays on clothes, in closets, and on linens for days after washing, far exceeding expectations."
       },
       {
-        "theme": "Feels cleaner and gentler than mainstream detergents",
-        "count": 29,
-        "description": "Customers contrast Mozi favorably against Tide and chemical-heavy brands, praising its plant-based or gentle formula."
+        "theme": "Sample kit as discovery journey",
+        "count": 32,
+        "description": "The 9-pack sample kit is beloved as a low-risk discovery experience, with the main tension being the delightful difficulty of picking a favorite."
       },
       {
-        "theme": "The sample kit as a gateway purchase",
-        "count": 35,
-        "description": "The 9-pack sampler is consistently praised as a smart, low-risk entry point that converts samplers into loyal subscribers."
+        "theme": "Clean break from chemical detergents",
+        "count": 21,
+        "description": "Customers explicitly contrast Mozi against Tide and traditional detergents, citing plant-based ingredients and absence of harsh chemical smell as a key driver."
       },
       {
-        "theme": "Eliminates need for fabric softener",
-        "count": 12,
-        "description": "Multiple customers note clothes come out soft enough to skip fabric softener, reframing cost as a net savings."
+        "theme": "Scent strong but not overpowering",
+        "count": 24,
+        "description": "A recurring relief \u2014 customers with sensitive noses or allergies are surprised that Mozi's fragrance is sophisticated and balanced, not nauseating."
       },
       {
-        "theme": "Beautiful packaging adds perceived value",
+        "theme": "Laundry as elevated ritual",
         "count": 14,
-        "description": "The metal tins and little jars are called out specifically as premium, gift-worthy, and eco-friendlier than plastic."
+        "description": "Multiple customers describe actually looking forward to doing laundry, framing Mozi as a mood-lifting, sensory experience rather than a chore."
+      },
+      {
+        "theme": "Whole-home scent effect",
+        "count": 12,
+        "description": "Customers note that the scent fills the laundry room, dryer exhaust, and even the house during a wash cycle, extending the product's perceived value."
       }
     ],
     "top_reviews": [
       {
         "index": 130,
-        "product": "9 Pack Sample Kit",
-        "rating": 5,
-        "title": "If you are unsure - start with the sample kit!",
-        "body": "I first ordered MOZI Wash after seeing a TikTok ad and absolutely loved the Signature Cozy scent, but I wasn't sure which others I would like. I ended up falling in love with all of the other scents that I probably never would have never ordered otherwise! I rotate them so I don't go nose blind, and I'm constantly asked what perfume I'm wearing or what I wash my clothes in because I smell so good. A friend recently left his shirt on my boat, so I washed it before returning it. His wife texted me almost immediately and said he loves the smell of whatever you washed his shirt in. Then she added, 'You always smell so good.' That pretty much says it all!",
-        "marketing_angle": "Full customer journey story: TikTok discovery, sample kit conversion, scent rotation habit, and organic word-of-mouth \u2014 every funnel stage in one review, plus a viral-ready anecdote."
-      },
-      {
-        "index": 56,
         "product": "Central Coast",
         "rating": 5,
         "title": "Fantastic Detergent",
-        "body": "My husband is currently inpatient in a hospice facility. His clothes often have extremely unpleasant stains and odors. I choose to do his laundry so it actually gets cleaned and smells good. With Mozi Wash, I have finally found a product that actually works. It cleans amazingly well and clothes come out smelling fantastic. What's even better is that it is septic safe and environmentally friendly.",
-        "marketing_angle": "Emotionally devastating and powerful proof of cleaning performance under the most extreme real-world conditions \u2014 demonstrates efficacy beyond aesthetics while hitting eco-friendly and septic-safe credentials."
+        "body": "I absolutely love this detergent. There are 2 reasons why I tried this detergent. First, it had to be environmentally friendly and septic safe. Second, I wanted my clothes to smell amazing. I have a unique situation as well. My husband is currently inpatient in a hospice facility. His clothes often have extremely unpleasant stains and odors. I choose to do his laundry so it actually gets cleaned and smells good. To this point I was unable to find any products that actually cleaned his clothes and left them smelling good. With Mozi Wash, I have finally found a product that actually works. It cleans amazingly well and clothes come out smelling fantastic. What's even better is that it is septic safe and environmentally friendly.",
+        "marketing_angle": "A devastating, real-world proof of cleaning power and scent performance under the hardest possible conditions \u2014 emotionally unforgettable and impossible to manufacture."
       },
       {
-        "index": 98,
+        "index": 87,
         "product": "9 Pack Sample Kit",
         "rating": 5,
-        "title": "Every. Single. Scent.",
-        "body": "I am not a person who likes fragrance in general. I don't like cologne or perfume and I am annoyed that every shampoo and body wash has a different scent. But guys, Mozi has something special. The detergent gets the job done \u2014 cleans and brightens my laundry as good as my old faithful Tide. And because I wanted to stretch these samples out, I used a fraction of what I would typically use. And my laundry was just as clean and wonderfully fragrant. I'm sold. I'm in. 10/10.",
-        "marketing_angle": "The reluctant convert is the most credible voice \u2014 a self-described fragrance-hater who loved every single scent. Perfect for skeptic-targeting ads and conquesting Tide loyalists."
+        "title": "My clothes smell so nice and clean!",
+        "body": "I can honestly say I haven't found a scent I don't like! My clothes smell and look amazing when they come out of the wash, and even after I put them on, I can still smell that fresh, clean scent. It makes me feel like I'm walking around in freshly washed laundry all day! Now comes the hard part\u2026 deciding which full-size scent I want to purchase first!",
+        "marketing_angle": "The 'walking around in freshly washed laundry all day' line is a ready-made headline that captures the wearable scent experience with zero marketing polish needed."
       },
       {
-        "index": 128,
-        "product": "Signature Cozy",
+        "index": 25,
+        "product": "9 Pack Sample Kit",
         "rating": 5,
-        "title": "Whats better than Mozi Wash?",
-        "body": "Just when I thought there couldn't be anything better than the smell of Mozi Signature Cozy, MOZI came out with the Signature Cozy Ritual Trio. The trio includes the MOZI Wash, MOZI Glow candle, and MOZI Mist linen spray, so now that amazing Signature Cozy scent can be everywhere. I've even sprayed a little near my air return and let that fresh Signature Cozy scent travel through the house. Clean laundry, fresh linens, and a house that smells amazing \u2014 THE TRIO IS DEFINITELY WHERE IT'S AT!!",
-        "marketing_angle": "Organic upsell evangelism \u2014 customer discovered the ecosystem herself and is selling the Ritual Trio better than any copywriter could. Ready-made testimonial for bundle and cross-sell campaigns."
+        "title": "Scentsational...",
+        "body": "I like the packaging, the detergent, and the scents. I'm cool with the plant based detergent. I'm stoked with the metal containers. I'm geeked with the smell. I was very hesitant to purchase at first because the price was a bit of a shock. I'm happy to report that I think the product is worth the price. My clothes are clean and they smell fantastic. I could totally give up wearing cologne at this point. I won't, but I could.",
+        "marketing_angle": "This review maps the entire customer journey \u2014 skepticism, price shock, conversion, and delight \u2014 and delivers the 'give up cologne' line organically. A perfect funnel ad testimonial."
       },
       {
-        "index": 114,
-        "product": "Mozi Wash",
+        "index": 124,
+        "product": "Golden Hour",
         "rating": 5,
-        "title": "Soap from God",
-        "body": "Free of harmful chemicals, gentle on sensitive skin, and THE SMELL \u2014 DELICIOUS AND EXTREMELY LONG LASTING. One 32oz bottle lasts me 6 months! And I am starting to think people are wanting to hug me just to smell Mozi on my clothes.",
-        "marketing_angle": "Punchy, hyperbolic, and deeply quotable \u2014 'people are wanting to hug me just to smell Mozi on my clothes' is ready-made UGC ad copy, and the 6-month bottle claim directly neutralizes price objection."
+        "title": "Long lasting scents!",
+        "body": "Even my husband loves them, we bought the mini bottle variety pack to try out every scent. I cannot get over how long lasting the scents are. I work at a bar in a bbq restaurant and my clothes always smell after work but every time I put on my apron before my shift it smells incredible.",
+        "marketing_angle": "A vivid real-world stress test \u2014 BBQ smoke and bar smells versus Mozi \u2014 and Mozi wins. Proof of performance that any woman with a hard-working household will immediately believe."
+      },
+      {
+        "index": 23,
+        "product": "Founder's Favorite",
+        "rating": 5,
+        "title": "Absolutely love this product.",
+        "body": "This is the best laundry detergent we have ever used. It does an outstanding job cleaning the clothes and we are just crazy about the scent it leaves behind, not just on the clothing, but in the house during a wash. We also like the powdered booster. We recommend this to everyone we know. Just got my best friend to subscribe! Also love the fact that the containers are metal so we are not contributing to the massive landfill problem loaded with plastic detergent containers.",
+        "marketing_angle": "Captures three distinct brand pillars in one review \u2014 scent, cleaning power, sustainability packaging \u2014 plus organic word-of-mouth referral and subscription conversion. A complete brand story."
       }
     ],
     "emerging": [
       {
-        "observation": "Customers are naming luxury fragrance brands as direct scent comparisons \u2014 Dior Sauvage, Le Labo Santal, Baccarat Rouge",
-        "why_notable": "This is unprompted prestige positioning. Customers are doing the luxury brand-matching work themselves, which is an enormously powerful signal for aspirational ad creative and suggests Mozi can lean into designer dupe language without saying it explicitly."
+        "observation": "Hollywood Rouge is creating a waitlist effect without one existing",
+        "why_notable": "At least 3 reviews in this window specifically call out Rouge as their favorite sample scent and express frustration or disappointment that it is not available in full size. This is unprompted demand signal that could be converted into a waitlist campaign or limited drop."
       },
       {
-        "observation": "Hollywood Rouge is generating demand despite being unavailable, appearing in multiple reviews as a source of disappointment or anticipation",
-        "why_notable": "There is a built-in waitlist audience expressing urgency around a single SKU. A restock campaign or limited drop for Hollywood Rouge could drive significant immediate conversion with an already-primed audience."
+        "observation": "Customers are self-discovering use-by-room behavior",
+        "why_notable": "Multiple reviewers without prompting assign specific scents to specific rooms or item types \u2014 Cozy for sheets and lingerie, Desert Poppy for air-dry rooms, Vanilla Moon for everyday clothes. This segmentation language is emerging organically and could anchor a 'right scent for every room' content strategy."
       },
       {
-        "observation": "The sample kit is being gifted \u2014 to nieces in college, as birthday gifts, to friends \u2014 not just purchased for self-evaluation",
-        "why_notable": "The 9-pack is organically functioning as a premium gift product without being positioned or priced as one. There is a clear opportunity to formalize a gift positioning for the sampler, especially ahead of gifting seasons."
+        "observation": "The metal tin is becoming an active sustainability talking point, not just an aesthetic one",
+        "why_notable": "Several reviewers this window explicitly mentioned the tin as a reason to feel good about the purchase relative to plastic waste, moving beyond 'it looks pretty' into values-based purchasing language that aligns with premium home goods buyers and could anchor an eco-positioning ad angle."
       }
     ],
     "ad_inspiration": [
       {
-        "angle": "The compliment you can't explain \u2014 Mozi as wearable scent",
-        "headline": "They'll ask what perfume you're wearing. Just smile.",
-        "supporting_quote": "I'm constantly asked what perfume I'm wearing or what I wash my clothes in because I smell so good."
+        "angle": "Laundry as a sensory ritual, not a chore",
+        "headline": "Somehow, I look forward to laundry now.",
+        "supporting_quote": "Somehow, I look forward to laundry now. The scents are delightful, and I feel much better about the list of ingredients compared to a traditional detergent."
       },
       {
-        "angle": "The reluctant convert \u2014 for Tide loyalists and fragrance skeptics",
-        "headline": "She hated fragrance. She tried every scent. She loved them all.",
-        "supporting_quote": "I am not a person who likes fragrance in general. But guys, Mozi has something special."
+        "angle": "Scent you wear, not just wash in",
+        "headline": "You might not need cologne anymore. Just saying.",
+        "supporting_quote": "I could totally give up wearing cologne at this point. I won't, but I could."
       },
       {
-        "angle": "Scent that lives in your home \u2014 the Ritual Trio ecosystem play",
-        "headline": "Wash it. Mist it. Light it. Let the whole house smell like this.",
-        "supporting_quote": "I've even sprayed a little near my air return and let that fresh Signature Cozy scent travel through the house."
+        "angle": "The delicious problem of too many favorites \u2014 sample kit funnel ad",
+        "headline": "Warning: choosing just one is the hardest part.",
+        "supporting_quote": "The only problem is that there are too many good choices, I love all the scents!"
       },
       {
-        "angle": "The price reframe \u2014 concentrated formula, no fabric softener needed",
-        "headline": "One bottle. Six months. No fabric softener. Do the math.",
-        "supporting_quote": "I literally don't have to use any more fabric softener, which is fantastic and money saving. Not having to buy fabric softener really offsets it."
+        "angle": "Clean break from chemical giants \u2014 switcher campaign targeting Tide and Gain users",
+        "headline": "I honestly don't think I can go back to Tide now.",
+        "supporting_quote": "I love that it doesn't have that harsh chemical smell like Tide, and the clothes actually come out smelling fresh and feeling so soft that I can skip the fabric softener completely."
       }
     ],
     "by_scent": {
       "AW": {
-        "top_phrase": "amazing scent and cleaning power",
+        "top_phrase": "My laundry room smells fantastic every time I do laundry",
         "sentiment": "positive",
-        "notable": "One 2-star review flagged no scent on Alpine Woods \u2014 worth monitoring for batch consistency concerns."
+        "notable": "Two reviewers independently mentioned Alpine Woods replacing the need for cologne \u2014 strong candidate for a masculine-crossover or gift-for-him angle."
       },
       "CC": {
-        "top_phrase": "soft and cozy, versatile for all clothing and home items",
+        "top_phrase": "Nice fresh scent, seems to last several days",
         "sentiment": "positive",
-        "notable": "Signature Cozy drives the most review volume of any single scent and anchors the Ritual Trio \u2014 it is clearly the hero SKU."
+        "notable": "Reviewers cite environmental and septic-safe qualities alongside scent \u2014 Central Coast may attract a values-first buyer segment worth speaking to directly."
       },
       "CZ": {
-        "top_phrase": "",
-        "sentiment": "neutral",
-        "notable": "No distinct CZ reviews identified in this window \u2014 insufficient data."
+        "top_phrase": "Warm and cozy, keeps the smell for a long time",
+        "sentiment": "positive",
+        "notable": "Signature Cozy has the most reviews of any single scent this window and also the most mixed feedback on scent throw requiring more product \u2014 worth monitoring as a dosage perception issue."
       },
       "DP": {
-        "top_phrase": "light and beautiful fragrance, only need to use a little",
+        "top_phrase": "The house smells so good after washing \u2014 scent lingers for like a week",
         "sentiment": "positive",
-        "notable": "Desert Poppy praised for lightness and longevity; one customer noted preference for detachable lid on this SKU."
+        "notable": "Desert Poppy is strongly associated with air-drying behavior, which extends scent longevity perception. An air-dry lifestyle angle could amplify this SKU."
       },
       "FC": {
-        "top_phrase": "doing a much better job than other alternative detergents",
+        "top_phrase": "Best laundry detergent we have ever used \u2014 crazy about the scent",
         "sentiment": "positive",
-        "notable": "Free and Clear reviewed positively for performance but no scent-specific language \u2014 appeals to sensitive skin segment."
+        "notable": "Only one review but extremely high-value \u2014 includes sustainability, cleaning, scent, and a friend referral in one post."
       },
       "GH": {
-        "top_phrase": "Le Labo Santal match, lingers for a long time",
+        "top_phrase": "Long lasting scents, even working at a bar in a BBQ restaurant",
         "sentiment": "positive",
-        "notable": "Two reviewers independently compared Golden Hour to Le Labo Santal \u2014 powerful luxury dupe angle ready for creative."
+        "notable": "Golden Hour appears in the strongest real-world stress-test review in the batch \u2014 a proof-of-performance story that is highly shareable."
       },
       "HR": {
-        "top_phrase": "my number one, cannot wait until it comes back",
+        "top_phrase": "Hollywood Rouge is my absolute favorite \u2014 when will it be available in full size?",
         "sentiment": "positive",
-        "notable": "Hollywood Rouge is out of stock but generating the loudest demand signals in the review set \u2014 restock drop opportunity is significant."
+        "notable": "Hollywood Rouge is generating the highest unmet demand signal this window with multiple unsolicited requests for a full-size SKU \u2014 a clear product launch or waitlist opportunity."
       },
       "MM": {
-        "top_phrase": "rich, fresh, and clean \u2014 a great addition to laundry scents",
+        "top_phrase": "So light and fresh \u2014 a great addition to our laundry scents",
         "sentiment": "positive",
-        "notable": "Malibu Mornings praised for being subtle and non-overpowering, making it a strong recommendation for fragrance-sensitive shoppers."
+        "notable": "Malibu Mornings appears in several sample-kit favorite lists alongside Vanilla Moon and Central Coast, suggesting it belongs in a top-tier bestseller trio campaign."
       },
       "SD": {
-        "top_phrase": "citrus and sunshine, just makes me happy",
-        "sentiment": "positive",
-        "notable": "Sugar Dew draws a Volcano candle comparison from one reviewer \u2014 a strong hook for Anthropologie-adjacent creative targeting."
+        "top_phrase": "Smells like a summer cocktail \u2014 can't get enough of it",
+        "sentiment": "mixed",
+        "notable": "Sugar Dew has the most fragrance-intensity requests this window with two reviewers asking for a stronger scent \u2014 worth investigating formula perception or dosage guidance for this SKU."
       },
       "VM": {
-        "top_phrase": "smells like high-end perfume, sheets smell dreamy",
+        "top_phrase": "Sheets and towels smell so dreamy \u2014 strong enough to smell all day, light enough not to overwhelm",
         "sentiment": "positive",
-        "notable": "Vanilla Moon drives the most emotional and luxury-aspirational language of any scent \u2014 'smells expensive' and 'smells like heaven' are standout phrases."
+        "notable": "Vanilla Moon is the most emotionally described scent this window with language like 'dreamy,' 'balanced,' and 'perfect for the whole family' \u2014 highest potential for a hero lifestyle campaign."
       },
       "9PACK SK": {
-        "top_phrase": "the only problem is I love them all and can't choose",
+        "top_phrase": "The hardest part is deciding which one to buy in full size \u2014 I love them all",
         "sentiment": "positive",
-        "notable": "The sampler is functioning as both a self-purchase discovery tool and an organic gifting product \u2014 gift positioning is an untapped commercial opportunity."
+        "notable": "The sample kit is functioning as the brand's most powerful acquisition and conversion tool, consistently driving subscription intent and full-size purchase decisions \u2014 deserves its own always-on ad creative."
       }
     }
   }
